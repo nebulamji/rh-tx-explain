@@ -188,6 +188,7 @@ export async function lineRead(agentId, vault, wallet) {
 }
 
 // ---- Paid: money trail for a Robinhood Chain coin (1 USDG via x402 to JazzCat #1) ----
+const KNOWN = {'0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap v4 PoolManager: pool liquidity, not a holder'};
 const TRAIL_PRICE = '1000000', REG_START = 34600000n, ZERO_A = '0x0000000000000000000000000000000000000000', DEAD = '0x000000000000000000000000000000000000dead';
 const trailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_PRICE,
   description: "Money trail for a Robinhood Chain coin: who launched it and through what, where the minted supply went, who bought in the first blocks, the top holders (wallet or contract) and their share, and the launcher's USDG in and out. JazzCat #1, independent: read from the chain, nothing taken from the project.",
@@ -229,17 +230,16 @@ export async function moneyTrail(token) {
     sentTo: rows.filter(r => r.from === a).sort((x, y) => (y.v > x.v ? 1 : -1)).slice(0, 6).map(r => ({to: r.to, amount: f(r.v), pctOfSupply: pct(r.v), block: r.block, tx: r.tx}))}));
   // First buyers: recipients in the first 20 blocks after launch, other than the mint itself.
   const early = rows.filter(r => r.block <= first.block + 20 && r.from !== ZERO_A && r.to !== ZERO_A);
-  const earlyBuyers = [...new Map(early.map(r => [r.to, r])).values()].slice(0, 12).map(r => ({wallet: r.to, from: r.from, amount: f(r.v), pctOfSupply: pct(r.v), blocksAfterLaunch: r.block - first.block, holdsNow: f(bal.get(r.to) ?? 0n)}));
+  const earlyBuyers = [...new Map(early.filter(r => !KNOWN[r.to] && r.to !== token && r.to !== via && r.to !== DEAD && r.to !== ZERO_A).map(r => [r.to, r])).values()].slice(0, 12).map(r => ({wallet: r.to, from: r.from, amount: f(r.v), pctOfSupply: pct(r.v), blocksAfterLaunch: r.block - first.block, holdsNow: f(bal.get(r.to) ?? 0n), isLauncher: r.to === launcher}));
   const top = [...bal].filter(([a, v]) => v > 0n && a !== ZERO_A && a !== DEAD).sort((x, y) => (y[1] > x[1] ? 1 : -1)).slice(0, 10);
   const codes = await rpcBatch(top.map(([a]) => ['eth_getCode', [a, 'latest']]), OFFICIAL);
-  const KNOWN = {'0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap v4 PoolManager: pool liquidity, not a holder'};
   const holders = top.map(([a, v], i) => ({address: a, amount: f(v), pctOfSupply: pct(v), kind: KNOWN[a] ? 'pool' : codes[i] && codes[i] !== '0x' ? 'contract' : 'wallet', label: KNOWN[a], isLauncher: a === launcher}));
   let launcherUsdg = null; if (launcher) { try { const L = await ledger(launcher, 14); launcherUsdg = {usdgIn: L.usdgIn, usdgOut: L.usdgOut, balanceNow: L.balanceNow, transfers: L.transfers, counterparties: L.counterparties.slice(0, 8)}; } catch { throw new Error('Could not read the launcher\'s USDG history right now; nothing was charged. Try again.'); } }
   const flags = [], walletTop = holders.filter(h => h.kind === 'wallet'), top10w = walletTop.reduce((s, h) => s + h.pctOfSupply, 0);
   const lh = holders.find(h => h.isLauncher); if (lh && lh.pctOfSupply >= 5) flags.push(`the launcher's wallet still holds ${lh.pctOfSupply}% of supply`);
   if (walletTop[0] && walletTop[0].pctOfSupply >= 10) flags.push(`one wallet holds ${walletTop[0].pctOfSupply}% of supply`);
   if (top10w >= 40) flags.push(`the top wallets (not contracts) hold ${Math.round(top10w * 100) / 100}% of supply`);
-  const fast = earlyBuyers.filter(b => b.blocksAfterLaunch <= 5); if (fast.length >= 3) flags.push(`${fast.length} wallets received the coin within 5 blocks of launch: snipers or a bundle, read the list`);
+  const fast = earlyBuyers.filter(b => b.blocksAfterLaunch <= 5 && !b.isLauncher); if (fast.length >= 3) flags.push(`${fast.length} wallets received the coin within 5 blocks of launch: snipers or a bundle, read the list`);
   const devBuy = earlyBuyers.find(b => b.wallet === launcher); if (devBuy && (bal.get(launcher) ?? 0n) * 10n < BigInt(Math.round(devBuy.pctOfSupply * 100)) * total / 100000n) flags.push(`the launcher took ${devBuy.pctOfSupply}% in the launch block and now holds ${pct(bal.get(launcher) ?? 0n)}%`);
   if (mints.length > 1) flags.push(`minted ${mints.length} times, not once: supply can grow`);
   return {token, chainId: CHAIN_ID, symbol: decodeString(sym), name: decodeString(name), decimals: d, totalSupply: f(total), burned: f(burned), transfers: rows.length,
@@ -301,6 +301,41 @@ async function count(env, ctx, route) {
 // Every free explanation points at the paid read that goes deeper.
 const NEXT = (origin, r) => ({moneyTrail: (r.tokens?.[0] || r.facts?.find?.(f => f.token)?.token) ? origin + '/x402/money-trail?token=' + (r.tokens?.[0] || r.facts.find(f => f.token).token) + ' (1 USDG): who launched the coin, who sold at launch, where its supply sits' : undefined,
   ledger: r.from ? origin + '/x402/ledger?address=' + r.from + ' (0.05 USDG): every USDG this wallet moved, reconciled' : undefined});
+
+// ---- Free coin page: the headline of a money trail, with the full read one x402 call away ----
+const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+function coinHeadline(r) {
+  const launchBlock = r.earlyBuyers.filter(b => b.blocksAfterLaunch === 0 && !b.isLauncher && b.wallet !== r.launch?.launcher && !KNOWN[b.wallet]), still = launchBlock.filter(b => !/^0(\.0+)?$/.test(b.holdsNow));
+  const launcher = r.topHolders.find(h => h.isLauncher), topWallet = r.topHolders.find(h => h.kind === 'wallet');
+  return {symbol: r.symbol, token: r.token, minted: r.flags.some(f => f.startsWith('minted')) ? 'more than once' : 'once',
+    launchBlockBuyers: launchBlock.length, launchBlockPct: Math.round(launchBlock.reduce((s, b) => s + b.pctOfSupply, 0) * 100) / 100, stillHolding: still.length,
+    launcherPct: launcher ? launcher.pctOfSupply : 0, topWallet: topWallet ? {address: topWallet.address, pct: topWallet.pctOfSupply} : null,
+    pool: r.topHolders.filter(h => h.kind === 'pool').reduce((s, h) => s + h.pctOfSupply, 0), flags: r.flags, transfers: r.transfers, launch: r.launch};
+}
+async function coinPage(url, env, ctx) {
+  const token = (url.searchParams.get('token') || '').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(token)) return new Response('token=0x… required', {status: 400});
+  const key = new Request('https://coin.cache/' + token), cache = caches.default, hit = await cache.match(key);
+  let h; if (hit) h = await hit.json(); else { const r = TRAILS[token] ?? await moneyTrail(token); h = coinHeadline(r); ctx?.waitUntil(cache.put(key, new Response(JSON.stringify(h), {headers: {'cache-control': 'public, max-age=3600'}}))); }
+  if (url.searchParams.get('format') === 'json') return json(h);
+  const pay = url.origin + '/x402/money-trail?token=' + token;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(h.symbol)} money trail · JazzCat #1</title>
+<style>:root{--bg:#0d0d0f;--fg:#ece9e1;--mut:#9a958a;--ac:#e8c35b}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 ui-monospace,Menlo,monospace}main{max-width:680px;margin:0 auto;padding:28px 16px}h1{font-size:22px;margin:0 0 4px}small,.m{color:var(--mut)}li{margin:6px 0}a{color:var(--ac)}code{word-break:break-all}.box{border:1px solid #2a2a2e;padding:14px 16px;border-radius:8px;margin:18px 0}</style></head><body><main>
+<h1>$${esc(h.symbol)}: the money trail, from the chain</h1><small>Robinhood Chain · <code>${esc(token)}</code> · ${esc(h.transfers)} transfers read · by JazzCat #1 (agent #26063), New Jazz City</small>
+<div class="box"><ul>
+<li>Minted <b>${esc(h.minted)}</b>${h.launch?.launcher ? `, launched by <code>${esc(h.launch.launcher)}</code>` : ''}.</li>
+<li><b>${esc(h.launchBlockBuyers)}</b> wallets took <b>${esc(h.launchBlockPct)}%</b> in the launch block; <b>${esc(h.stillHolding)}</b> still hold.</li>
+<li>The launcher's wallet holds <b>${esc(h.launcherPct)}%</b> now.</li>
+${h.topWallet ? `<li>Biggest plain wallet: <code>${esc(h.topWallet.address)}</code>, <b>${esc(h.topWallet.pct)}%</b>.</li>` : ''}
+${h.pool ? `<li>In Uniswap v4 pools: <b>${esc(Math.round(h.pool * 100) / 100)}%</b>.</li>` : ''}
+${h.flags.map(f => `<li class="m">flag: ${esc(f)}</li>`).join('')}
+</ul></div>
+<p>The full read: where the minted supply went, every launch-block buyer and what they hold now, the top 10 holders (wallet, contract or pool), and the launcher's USDG in and out. <b>1 USDG over x402</b>, paid to the Cat's own wallet, verified payee on Toll:</p>
+<p><code>GET ${esc(pay)}</code></p>
+<p class="m">Free tools: <a href="${esc(url.origin)}/?tx=">explain any transaction</a> · <a href="${esc(url.origin)}/control?agentId=26063">who controls an agent</a> · MCP at <code>${esc(url.origin)}/mcp</code></p>
+</main></body></html>`;
+  return new Response(html, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=600'}});
+}
 const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 // x402 v1 names the network "robinhood"; v2 clients want CAIP-2 "eip155:4663". Offer both, settle whichever the payer signed.
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
@@ -341,6 +376,7 @@ export default {
     if (url.pathname === '/mcp' && req.method === 'POST') count(env, ctx, 'mcp');
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
+    if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
     if (url.pathname === '/control' && req.method === 'GET') {
       const key = new Request('https://control.cache/' + (url.searchParams.get('agentId') || '')), cache = caches.default, hit = await cache.match(key);
