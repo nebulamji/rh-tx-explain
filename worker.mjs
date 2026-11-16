@@ -333,7 +333,10 @@ export default {
       if (tx) { count(env, ctx, 'explain'); try { const r = await explain(tx); return json({...r, next: NEXT(url.origin, r)}); } catch (e) { return json({error: e.message}, 400); } }
       return json({name: 'Robinhood Chain transaction explainer', by: 'JazzCat #1 (ERC-8004 agent #26026), New Jazz City (newjazzcity.pages.dev)', mcp: url.origin + '/mcp', try: url.origin + '/?tx=0x…', tool: TOOL.name, readOnly: true, paid: {ledger: url.origin + '/x402/ledger?address=0x…&days=7', lineRead: url.origin + '/x402/line-read?agentId=…&vault=0x…&wallet=0x…', moneyTrail: url.origin + '/x402/money-trail?token=0x…', price: 'ledger 0.05 USDG, line read 1 USDG, money trail 1 USDG', rail: 'x402 on Robinhood Chain, settled by x402.t0ll.xyz', payTo: CAT1_WALLET}});
     }
-    if (url.pathname.startsWith('/x402/')) count(env, ctx, url.pathname.slice(6) + (req.headers.get('x-payment') || req.headers.get('payment-signature') ? ':paid-attempt' : ':offer'));
+    if (url.pathname.startsWith('/x402/')) {
+      const ua = (req.headers.get('user-agent') || 'none').replace(/[^A-Za-z0-9._/ -]/g, '').slice(0, 40);
+      count(env, ctx, url.pathname.slice(6) + (req.headers.get('x-payment') || req.headers.get('payment-signature') ? ':paid-attempt' : ':offer') + ':' + ua);
+    }
     if (url.pathname === '/control') count(env, ctx, 'control');
     if (url.pathname === '/mcp' && req.method === 'POST') count(env, ctx, 'mcp');
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
