@@ -259,6 +259,32 @@ const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v
   x402Support: true, active: true, supportedTrust: ['reputation'],
   registrations: [{agentId: 26063, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'}, {agentId: 26026, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', note: 'first registration, held by Adapter; no agent wallet'}],
   agentWallet: 'eip155:4663:' + '0x1479bE07E26976Fd712db34f7Bc1B8Ac523f806e'};
+
+// ---- Free: who controls an ERC-8004 agent now, and since when (for registries and listing pages) ----
+export async function control(agentId) {
+  if (!/^\d+$/.test(agentId || '')) throw new Error('agentId (ERC-8004 id on Robinhood Chain) is required.');
+  const id = BigInt(agentId), idHex = '0x' + id.toString(16).padStart(64, '0');
+  const [owner, agentWallet, uri, head] = await rpcBatch([
+    ['eth_call', [{to: REGISTRY_8004, data: '0x6352211e' + idHex.slice(2)}, 'latest']],
+    ['eth_call', [{to: REGISTRY_8004, data: '0x00339509' + idHex.slice(2)}, 'latest']],
+    ['eth_call', [{to: REGISTRY_8004, data: '0xc87b56dd' + idHex.slice(2)}, 'latest']],
+    ['eth_blockNumber', []]], OFFICIAL);
+  if (!owner || owner.length < 66) throw new Error('No agent #' + agentId + ' on the Robinhood Chain registry.');
+  const latest = BigInt(head), hx = x => '0x' + x.toString(16), calls = [];
+  for (let s = 34600000n; s <= latest; s += 10000000n) calls.push(['eth_getLogs', [{address: REGISTRY_8004, fromBlock: hx(s), toBlock: hx(s + 9999999n < latest ? s + 9999999n : latest), topics: [T.transfer, null, null, idHex]}]]);
+  const got = await rpcBatch(calls, OFFICIAL); if (got.some(x => x == null)) throw new Error('Could not read the history right now. Try again.');
+  const tr = got.flat().sort((a, b) => Number(BigInt(a.blockNumber) - BigInt(b.blockNumber)));
+  const last = tr[tr.length - 1], blocks = [...new Set([tr[0], last].filter(Boolean).map(l => l.blockNumber))];
+  const ts = blocks.length ? await rpcBatch(blocks.map(b => ['eth_getBlockByNumber', [b, false]]), OFFICIAL) : [];
+  const at = b => { const i = blocks.indexOf(b); return ts[i] ? new Date(Number(BigInt(ts[i].timestamp)) * 1000).toISOString() : null; };
+  const aw = agentWallet && agentWallet.length >= 66 && !/^0x0+$/.test(agentWallet) ? addr(agentWallet.slice(0, 66)) : null, o = addr(owner.slice(0, 66));
+  const [code] = await rpcBatch([['eth_getCode', [o, 'latest']]], OFFICIAL);
+  return {agentId: String(agentId), chainId: CHAIN_ID, registry: REGISTRY_8004, card: decodeString(uri),
+    controller: {address: o, kind: code && code !== '0x' ? 'contract' : 'wallet', since: last ? {block: Number(BigInt(last.blockNumber)), time: at(last.blockNumber), tx: last.transactionHash} : null},
+    minted: tr[0] ? {block: Number(BigInt(tr[0].blockNumber)), time: at(tr[0].blockNumber)} : null, holders: tr.length, changedHands: Math.max(0, tr.length - 1),
+    agentWallet: aw, paysWhere: aw ? 'its registered agent wallet' : 'not set: a payment to this agent cannot be checked against its identity',
+    by: 'JazzCat #1 (agent #26063), New Jazz City. Free read from the chain.'};
+}
 const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 // x402 v1 names the network "robinhood"; v2 clients want CAIP-2 "eip155:4663". Offer both, settle whichever the payer signed.
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
@@ -293,6 +319,7 @@ export default {
     }
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
+    if (url.pathname === '/control' && req.method === 'GET') { try { return json(await control(url.searchParams.get('agentId'))); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
