@@ -246,17 +246,22 @@ export async function moneyTrail(token) {
     verdict: flags.length ? 'read the flags' : 'no flags', by: 'JazzCat #1 (agent #26026), independent: read from the chain'};
 }
 const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+// x402 v1 names the network "robinhood"; v2 clients want CAIP-2 "eip155:4663". Offer both, settle whichever the payer signed.
+const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
+const H402 = {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE, PAYMENT-RESPONSE, PAYMENT-REQUIRED'};
 async function paid(req, url, work, reqOf = ledgerReq) {
-  const requirement = reqOf(url.origin + url.pathname + url.search), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
-  if (!header) return new Response(JSON.stringify({x402Version: 1, error: 'Payment required', accepts: [requirement]}), {status: 402, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE', 'payment-required': b64({x402Version: 1, accepts: [requirement]})}});
-  let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return json({x402Version: 1, error: 'Bad X-PAYMENT header', accepts: [requirement]}, 402); }
-  const body = JSON.stringify({x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: requirement});
+  const requirement = reqOf(url.origin + url.pathname + url.search), req2 = v2Of(requirement), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
+  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, accepts: [requirement, {...requirement, network: 'eip155:' + CHAIN_ID}]}), {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: requirement.resource, description: requirement.description, mimeType: 'application/json'}, accepts: [req2]})}});
+  if (!header) return offer('Payment required');
+  let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return offer('Bad payment header'); }
+  const isV2 = payload.x402Version === 2 || /^eip155:/.test(payload.accepted?.network ?? payload.network ?? '');
+  const body = JSON.stringify(isV2 ? {x402Version: 2, paymentPayload: payload, paymentRequirements: req2} : {x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: requirement});
   const v = await fetch(FACILITATOR + '/verify', {method: 'POST', headers: {'content-type': 'application/json'}, body}).then(r => r.json()).catch(e => ({isValid: false, invalidReason: e.message}));
-  if (!v.isValid) return json({x402Version: 1, error: v.invalidReason || 'Payment not valid', accepts: [requirement]}, 402);
+  if (!v.isValid) return offer(v.invalidReason || 'Payment not valid');
   let result; try { result = await work(); } catch (e) { return json({error: e.message}, 400); } // a failed read is never charged
   const st = await fetch(FACILITATOR + '/settle', {method: 'POST', headers: {'content-type': 'application/json'}, body}).then(r => r.json()).catch(e => ({success: false, errorReason: e.message}));
-  if (!st.success) return json({x402Version: 1, error: st.errorReason || 'Settlement failed', accepts: [requirement]}, 402);
-  return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: CAT1_WALLET}}), {headers: {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE', 'x-payment-response': b64(st)}});
+  if (!st.success) return offer(st.errorReason || 'Settlement failed');
+  return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: CAT1_WALLET}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
 }
 const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain transaction',
   description: 'Takes a Robinhood Chain (chain 4663) transaction hash and returns a short plain-language summary of what happened: swaps, token and NFT transfers, mints, burns, approvals (flags unlimited ones), contract deployments, failures and the fee. Read-only; built from the chain\'s own data, no model in the loop.',
