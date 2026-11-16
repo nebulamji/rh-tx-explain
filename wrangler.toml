@@ -2,3 +2,7 @@ name = "njc-tx-explain"
 main = "worker.mjs"
 compatibility_date = "2026-10-01"
 workers_dev = true
+
+[[kv_namespaces]]
+binding = "USAGE"
+id = "b182475d1d9a4dd5ba836838c62b15e1"

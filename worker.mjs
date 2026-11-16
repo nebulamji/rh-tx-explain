@@ -291,6 +291,16 @@ export async function control(agentId) {
     agentWallet: aw, paysWhere: aw ? 'its registered agent wallet' : 'not set: a payment to this agent cannot be checked against its identity',
     by: 'JazzCat #1 (agent #26063), New Jazz City. Free read from the chain.'};
 }
+
+// Usage counts per route per day (approximate: KV is not atomic). GET /stats reads them.
+async function count(env, ctx, route) {
+  if (!env?.USAGE) return;
+  const k = new Date().toISOString().slice(0, 10) + ':' + route;
+  ctx?.waitUntil((async () => { const n = Number(await env.USAGE.get(k)) || 0; await env.USAGE.put(k, String(n + 1), {expirationTtl: 400 * 86400}); })());
+}
+// Every free explanation points at the paid read that goes deeper.
+const NEXT = (origin, r) => ({moneyTrail: (r.tokens?.[0] || r.facts?.find?.(f => f.token)?.token) ? origin + '/x402/money-trail?token=' + (r.tokens?.[0] || r.facts.find(f => f.token).token) + ' (1 USDG): who launched the coin, who sold at launch, where its supply sits' : undefined,
+  ledger: r.from ? origin + '/x402/ledger?address=' + r.from + ' (0.05 USDG): every USDG this wallet moved, reconciled' : undefined});
 const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 // x402 v1 names the network "robinhood"; v2 clients want CAIP-2 "eip155:4663". Offer both, settle whichever the payer signed.
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
@@ -315,16 +325,20 @@ const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain tra
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
 
 export default {
-  async fetch(req) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, {headers: {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST'}});
     if (req.method === 'GET' && url.pathname === '/') {
       const tx = url.searchParams.get('tx');
-      if (tx) { try { return json(await explain(tx)); } catch (e) { return json({error: e.message}, 400); } }
+      if (tx) { count(env, ctx, 'explain'); try { const r = await explain(tx); return json({...r, next: NEXT(url.origin, r)}); } catch (e) { return json({error: e.message}, 400); } }
       return json({name: 'Robinhood Chain transaction explainer', by: 'JazzCat #1 (ERC-8004 agent #26026), New Jazz City (newjazzcity.pages.dev)', mcp: url.origin + '/mcp', try: url.origin + '/?tx=0x…', tool: TOOL.name, readOnly: true, paid: {ledger: url.origin + '/x402/ledger?address=0x…&days=7', lineRead: url.origin + '/x402/line-read?agentId=…&vault=0x…&wallet=0x…', moneyTrail: url.origin + '/x402/money-trail?token=0x…', price: 'ledger 0.05 USDG, line read 1 USDG, money trail 1 USDG', rail: 'x402 on Robinhood Chain, settled by x402.t0ll.xyz', payTo: CAT1_WALLET}});
     }
+    if (url.pathname.startsWith('/x402/')) count(env, ctx, url.pathname.slice(6) + (req.headers.get('x-payment') || req.headers.get('payment-signature') ? ':paid-attempt' : ':offer'));
+    if (url.pathname === '/control') count(env, ctx, 'control');
+    if (url.pathname === '/mcp' && req.method === 'POST') count(env, ctx, 'mcp');
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
+    if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
     if (url.pathname === '/control' && req.method === 'GET') {
       const key = new Request('https://control.cache/' + (url.searchParams.get('agentId') || '')), cache = caches.default, hit = await cache.match(key);
       if (hit) return hit;
