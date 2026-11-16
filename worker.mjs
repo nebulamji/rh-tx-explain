@@ -4,7 +4,7 @@ const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // 
 // Read-only. No keys, no model calls: every sentence is built from the chain's own transaction, receipt and logs.
 // MCP (streamable HTTP, JSON-RPC) at POST /mcp with one tool, explain_transaction. Humans: GET /?tx=0x...
 const LOG_RPCS = ['https://4663.rpc.thirdweb.com', 'https://njc-read-proxy.vercel.app/api/rpc']; // the two that serve wide filtered log ranges
-const OFFICIAL = ['https://njc-read-proxy.vercel.app/api/rpc']; // the official RPC (10M-block log windows) through a read-only proxy: it rate-limits Cloudflare's egress
+const OFFICIAL = [globalThis.NJC_LOCAL ? 'https://rpc.mainnet.chain.robinhood.com' : 'https://njc-read-proxy.vercel.app/api/rpc']; // the official RPC (10M-block log windows) through a read-only proxy: it rate-limits Cloudflare's egress
 const RPCS = ['https://robinhood-rpc.publicnode.com', 'https://robinhood.drpc.org', 'https://4663.rpc.thirdweb.com', 'https://rpc.mainnet.chain.robinhood.com'], EXPLORER = 'https://robinhoodchain.blockscout.com', CHAIN_ID = 4663;
 const T = {
   transfer: '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
@@ -232,7 +232,8 @@ export async function moneyTrail(token) {
   const earlyBuyers = [...new Map(early.map(r => [r.to, r])).values()].slice(0, 12).map(r => ({wallet: r.to, from: r.from, amount: f(r.v), pctOfSupply: pct(r.v), blocksAfterLaunch: r.block - first.block, holdsNow: f(bal.get(r.to) ?? 0n)}));
   const top = [...bal].filter(([a, v]) => v > 0n && a !== ZERO_A && a !== DEAD).sort((x, y) => (y[1] > x[1] ? 1 : -1)).slice(0, 10);
   const codes = await rpcBatch(top.map(([a]) => ['eth_getCode', [a, 'latest']]), OFFICIAL);
-  const holders = top.map(([a, v], i) => ({address: a, amount: f(v), pctOfSupply: pct(v), kind: codes[i] && codes[i] !== '0x' ? 'contract' : 'wallet', isLauncher: a === launcher}));
+  const KNOWN = {'0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap v4 PoolManager: pool liquidity, not a holder'};
+  const holders = top.map(([a, v], i) => ({address: a, amount: f(v), pctOfSupply: pct(v), kind: KNOWN[a] ? 'pool' : codes[i] && codes[i] !== '0x' ? 'contract' : 'wallet', label: KNOWN[a], isLauncher: a === launcher}));
   let launcherUsdg = null; if (launcher) { try { const L = await ledger(launcher, 14); launcherUsdg = {usdgIn: L.usdgIn, usdgOut: L.usdgOut, balanceNow: L.balanceNow, transfers: L.transfers, counterparties: L.counterparties.slice(0, 8)}; } catch { throw new Error('Could not read the launcher\'s USDG history right now; nothing was charged. Try again.'); } }
   const flags = [], walletTop = holders.filter(h => h.kind === 'wallet'), top10w = walletTop.reduce((s, h) => s + h.pctOfSupply, 0);
   const lh = holders.find(h => h.isLauncher); if (lh && lh.pctOfSupply >= 5) flags.push(`the launcher's wallet still holds ${lh.pctOfSupply}% of supply`);
