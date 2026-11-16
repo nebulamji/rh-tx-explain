@@ -130,7 +130,7 @@ const ledgerReq = resource => ({scheme: 'exact', network: 'robinhood', maxAmount
   description: "USDG ledger for any Robinhood Chain address: every USDG in and out over the last N days (max 14), with counterparties, tx links and a reconciliation against the on-chain balance. JazzCat #1's audit method, automated.",
   mimeType: 'application/json', payTo: CAT1_WALLET, maxTimeoutSeconds: 300, asset: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/ledger?address={address}&days={days}', queryParams: {address: {type: 'string', description: 'Robinhood Chain address'}, days: {type: 'number', description: '1-14, default 7'}}}, output: {type: 'object'}},
-  extra: {name: 'Global Dollar', version: '1', erc8004: {registry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: '26026', delegation: null}}});
+  extra: {name: 'Global Dollar', version: '1', erc8004: {registry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: '26063', delegation: null}}});
 const pad = a => '0x' + a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
 export async function ledger(address, days = 7) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address || '')) throw new Error('A 0x address is required.');
@@ -184,7 +184,7 @@ export async function lineRead(agentId, vault, wallet) {
   let existingLine = null; if (vault && /^0x[0-9a-fA-F]{40}$/.test(vault)) { const [ln] = await rpcBatch([['eth_call', [{to: vault, data: '0x1c86bc85' + idHex.slice(2)}, 'latest']]], LOG_RPCS);
     if (ln && ln.length >= 2 + 64 * 5) { const w = ln.slice(2).match(/.{64}/g); existingLine = {wallet: '0x' + w[0].slice(24), limit: fmt(BigInt('0x' + w[1]), 6), drawn: fmt(BigInt('0x' + w[2]), 6), borrows: Number(BigInt('0x' + w[3])), repays: Number(BigInt('0x' + w[4]))}; } }
   return {agentId: agentId, chainId: CHAIN_ID, registry: REGISTRY_8004, owner: ownerAddr, agentWallet: aw, lineWallet: wallet || null, idHistory: {minted: transfers[0]?.block ?? null, transfers}, walletHistory, existingLine, flags,
-    verdict: flags.length ? 'read the flags before opening' : 'no flags', by: 'JazzCat #1 (agent #26026), independent: holds no line in what it reads'};
+    verdict: flags.length ? 'read the flags before opening' : 'no flags', by: 'JazzCat #1 (agent #26063), independent: holds no line in what it reads'};
 }
 
 // ---- Paid: money trail for a Robinhood Chain coin (1 USDG via x402 to JazzCat #1) ----
@@ -243,8 +243,22 @@ export async function moneyTrail(token) {
   if (mints.length > 1) flags.push(`minted ${mints.length} times, not once: supply can grow`);
   return {token, chainId: CHAIN_ID, symbol: decodeString(sym), name: decodeString(name), decimals: d, totalSupply: f(total), burned: f(burned), transfers: rows.length,
     launch: {block: first.block, tx: first.tx, launcher, via, mintedTo: mintTo}, supplyOut, earlyBuyers, topHolders: holders, launcherUsdg, flags,
-    verdict: flags.length ? 'read the flags' : 'no flags', by: 'JazzCat #1 (agent #26026), independent: read from the chain'};
+    verdict: flags.length ? 'read the flags' : 'no flags', by: 'JazzCat #1 (agent #26063), independent: read from the chain'};
 }
+
+// ERC-8004 agent card for JazzCat #1 as a seller: its paid endpoints and the wallet it is paid in.
+const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #1',
+  description: 'JazzCat #1, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402. Credit-line read before a lender opens a line (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer. Paid in USDG straight into its own token-bound wallet.',
+  image: 'https://jazzcatsfun.pages.dev/agents/1.svg',
+  services: [
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/line-read', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/money-trail', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/ledger', version: '1'},
+    {name: 'MCP', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/mcp', version: '2025-06-18'},
+    {name: 'web', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/'}],
+  x402Support: true, active: true, supportedTrust: ['reputation'],
+  registrations: [{agentId: 26063, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'}, {agentId: 26026, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', note: 'first registration, held by Adapter; no agent wallet'}],
+  agentWallet: 'eip155:4663:' + '0x1479bE07E26976Fd712db34f7Bc1B8Ac523f806e'};
 const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 // x402 v1 names the network "robinhood"; v2 clients want CAIP-2 "eip155:4663". Offer both, settle whichever the payer signed.
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
@@ -278,6 +292,7 @@ export default {
       return json({name: 'Robinhood Chain transaction explainer', by: 'JazzCat #1 (ERC-8004 agent #26026), New Jazz City (newjazzcity.pages.dev)', mcp: url.origin + '/mcp', try: url.origin + '/?tx=0x…', tool: TOOL.name, readOnly: true, paid: {ledger: url.origin + '/x402/ledger?address=0x…&days=7', lineRead: url.origin + '/x402/line-read?agentId=…&vault=0x…&wallet=0x…', moneyTrail: url.origin + '/x402/money-trail?token=0x…', price: 'ledger 0.05 USDG, line read 1 USDG, money trail 1 USDG', rail: 'x402 on Robinhood Chain, settled by x402.t0ll.xyz', payTo: CAT1_WALLET}});
     }
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
+    if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
