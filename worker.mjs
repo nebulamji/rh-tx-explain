@@ -1,3 +1,5 @@
+import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.json' with {type: 'json'};
+const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
 // Read-only. No keys, no model calls: every sentence is built from the chain's own transaction, receipt and logs.
 // MCP (streamable HTTP, JSON-RPC) at POST /mcp with one tool, explain_transaction. Humans: GET /?tx=0x...
@@ -191,15 +193,18 @@ const trailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_
   description: "Money trail for a Robinhood Chain coin: who launched it and through what, where the minted supply went, who bought in the first blocks, the top holders (wallet or contract) and their share, and the launcher's USDG in and out. JazzCat #1, independent: read from the chain, nothing taken from the project.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/money-trail?token={token}', queryParams: {token: {type: 'string', description: 'ERC-20 address on Robinhood Chain'}}}, output: {type: 'object'}}});
 async function tokenLogs(token, latest) {
-  const hx = x => '0x' + x.toString(16), win = [];
-  for (let s = REG_START; s <= latest; s += 10000000n) win.push([s, s + 9999999n < latest ? s + 9999999n : latest]);
-  const get = ws => rpcBatch(ws.map(([f, t]) => ['eth_getLogs', [{address: token, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer]}]]), OFFICIAL);
-  const res = await get(win), out = [];
-  for (const [i, r] of res.entries()) {
+  // One window per request (the official RPC rate-limits batches by size); a window that fails or is too big splits in ten.
+  const hx = x => '0x' + x.toString(16), out = [], todo = [];
+  for (let s = REG_START; s <= latest; s += 10000000n) todo.push([s, s + 9999999n < latest ? s + 9999999n : latest]);
+  let calls = 0;
+  while (todo.length) {
+    const [f, t] = todo.shift();
+    if (++calls > 400) throw new Error('This coin has too much history to read in one call; nothing was charged.');
+    const [r] = await rpcBatch([['eth_getLogs', [{address: token, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer]}]]], OFFICIAL).catch(() => [null]);
     if (r) { out.push(...r); continue; }
-    const [f, t] = win[i], sub = []; for (let s = f; s <= t; s += 500000n) sub.push([s, s + 499999n < t ? s + 499999n : t]); // too many logs: split once
-    const rr = await get(sub); if (rr.some(x => x == null)) throw new Error('Could not read the full transfer history right now; nothing was charged. Try again.');
-    out.push(...rr.flat());
+    if (t - f < 20000n) throw new Error('Could not read the full transfer history right now; nothing was charged. Try again.');
+    const step = (t - f + 1n) / 10n; for (let s = f; s <= t; s += step) todo.unshift([s, s + step - 1n < t ? s + step - 1n : t]);
+    await new Promise(res => setTimeout(res, 300));
   }
   return out.filter(l => l.topics.length === 3).sort((a, b) => Number(BigInt(a.blockNumber) - BigInt(b.blockNumber)) || Number(BigInt(a.logIndex) - BigInt(b.logIndex)));
 }
@@ -268,7 +273,7 @@ export default {
       return json({name: 'Robinhood Chain transaction explainer', by: 'JazzCat #1 (ERC-8004 agent #26026), New Jazz City (newjazzcity.pages.dev)', mcp: url.origin + '/mcp', try: url.origin + '/?tx=0x…', tool: TOOL.name, readOnly: true, paid: {ledger: url.origin + '/x402/ledger?address=0x…&days=7', lineRead: url.origin + '/x402/line-read?agentId=…&vault=0x…&wallet=0x…', moneyTrail: url.origin + '/x402/money-trail?token=0x…', price: 'ledger 0.05 USDG, line read 1 USDG, money trail 1 USDG', rail: 'x402 on Robinhood Chain, settled by x402.t0ll.xyz', payTo: CAT1_WALLET}});
     }
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
-    if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
     const m = await req.json().catch(() => null); if (!m) return json({jsonrpc: '2.0', id: null, error: {code: -32700, message: 'Parse error'}}, 400);
