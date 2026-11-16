@@ -3,8 +3,8 @@ const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // 
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
 // Read-only. No keys, no model calls: every sentence is built from the chain's own transaction, receipt and logs.
 // MCP (streamable HTTP, JSON-RPC) at POST /mcp with one tool, explain_transaction. Humans: GET /?tx=0x...
-const LOG_RPCS = ['https://4663.rpc.thirdweb.com', 'https://rpc.mainnet.chain.robinhood.com']; // the two that serve wide filtered log ranges
-const OFFICIAL = ['https://rpc.mainnet.chain.robinhood.com']; // serves 10M-block filtered log windows; thirdweb caps some at 1000
+const LOG_RPCS = ['https://4663.rpc.thirdweb.com', 'https://njc-read-proxy.vercel.app/api/rpc']; // the two that serve wide filtered log ranges
+const OFFICIAL = ['https://njc-read-proxy.vercel.app/api/rpc']; // the official RPC (10M-block log windows) through a read-only proxy: it rate-limits Cloudflare's egress
 const RPCS = ['https://robinhood-rpc.publicnode.com', 'https://robinhood.drpc.org', 'https://4663.rpc.thirdweb.com', 'https://rpc.mainnet.chain.robinhood.com'], EXPLORER = 'https://robinhoodchain.blockscout.com', CHAIN_ID = 4663;
 const T = {
   transfer: '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
@@ -270,10 +270,15 @@ export async function control(agentId) {
     ['eth_call', [{to: REGISTRY_8004, data: '0xc87b56dd' + idHex.slice(2)}, 'latest']],
     ['eth_blockNumber', []]], OFFICIAL);
   if (!owner || owner.length < 66) throw new Error('No agent #' + agentId + ' on the Robinhood Chain registry.');
-  const latest = BigInt(head), hx = x => '0x' + x.toString(16), calls = [];
-  for (let s = 34600000n; s <= latest; s += 10000000n) calls.push(['eth_getLogs', [{address: REGISTRY_8004, fromBlock: hx(s), toBlock: hx(s + 9999999n < latest ? s + 9999999n : latest), topics: [T.transfer, null, null, idHex]}]]);
-  const got = await rpcBatch(calls, OFFICIAL); if (got.some(x => x == null)) throw new Error('Could not read the history right now. Try again.');
-  const tr = got.flat().sort((a, b) => Number(BigInt(a.blockNumber) - BigInt(b.blockNumber)));
+  // Newest window first, one request each, stopping at the mint: most agents need one or two reads.
+  const latest = BigInt(head), hx = x => '0x' + x.toString(16), found = [];
+  for (let t = latest; t >= 34600000n; t -= 10000000n) {
+    const f = t - 9999999n > 34600000n ? t - 9999999n : 34600000n;
+    const [r] = await rpcBatch([['eth_getLogs', [{address: REGISTRY_8004, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer, null, null, idHex]}]]], OFFICIAL);
+    if (r == null) throw new Error('Could not read the history right now. Try again.');
+    found.push(...r); if (r.some(l => /^0x0+$/.test(l.topics[1]))) break;
+  }
+  const tr = found.sort((a, b) => Number(BigInt(a.blockNumber) - BigInt(b.blockNumber)));
   const last = tr[tr.length - 1], blocks = [...new Set([tr[0], last].filter(Boolean).map(l => l.blockNumber))];
   const ts = blocks.length ? await rpcBatch(blocks.map(b => ['eth_getBlockByNumber', [b, false]]), OFFICIAL) : [];
   const at = b => { const i = blocks.indexOf(b); return ts[i] ? new Date(Number(BigInt(ts[i].timestamp)) * 1000).toISOString() : null; };
@@ -319,7 +324,11 @@ export default {
     }
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
-    if (url.pathname === '/control' && req.method === 'GET') { try { return json(await control(url.searchParams.get('agentId'))); } catch (e) { return json({error: e.message}, 400); } }
+    if (url.pathname === '/control' && req.method === 'GET') {
+      const key = new Request('https://control.cache/' + (url.searchParams.get('agentId') || '')), cache = caches.default, hit = await cache.match(key);
+      if (hit) return hit;
+      try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
+    }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
