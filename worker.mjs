@@ -2,6 +2,7 @@
 // Read-only. No keys, no model calls: every sentence is built from the chain's own transaction, receipt and logs.
 // MCP (streamable HTTP, JSON-RPC) at POST /mcp with one tool, explain_transaction. Humans: GET /?tx=0x...
 const LOG_RPCS = ['https://4663.rpc.thirdweb.com', 'https://rpc.mainnet.chain.robinhood.com']; // the two that serve wide filtered log ranges
+const OFFICIAL = ['https://rpc.mainnet.chain.robinhood.com']; // serves 10M-block filtered log windows; thirdweb caps some at 1000
 const RPCS = ['https://robinhood-rpc.publicnode.com', 'https://robinhood.drpc.org', 'https://4663.rpc.thirdweb.com', 'https://rpc.mainnet.chain.robinhood.com'], EXPLORER = 'https://robinhoodchain.blockscout.com', CHAIN_ID = 4663;
 const T = {
   transfer: '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
@@ -23,7 +24,7 @@ async function rpcBatch(calls, list = RPCS) {
   for (let i = 0; ; i++) {
     const RPC = list[i % list.length];
     const r = await fetch(RPC, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(calls.map(([method, params], id) => ({jsonrpc: '2.0', id, method, params})))});
-    if (r.status === 429 && i < 7) { await new Promise(res => setTimeout(res, 150 * (i + 1))); continue; }
+    if (r.status === 429 && i < 7) { await new Promise(res => setTimeout(res, 400 * (i + 1))); continue; }
     const j = await r.json().catch(() => null); if (!Array.isArray(j)) { if (i < 7) { await new Promise(res => setTimeout(res, 150 * (i + 1))); continue; } throw new Error('RPC unavailable (HTTP ' + r.status + ')'); }
     const out = []; for (const x of j) out[x.id] = x.error ? null : x.result; return out;
   }
@@ -133,10 +134,10 @@ export async function ledger(address, days = 7) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address || '')) throw new Error('A 0x address is required.');
   days = Math.max(1, Math.min(14, Number(days) || 7)); const a = address.toLowerCase();
   const [head] = await rpcBatch([['eth_blockNumber', []]]); const latest = BigInt(head), span = BigInt(Math.ceil(days * 86400 * 9.4)), start = latest > span ? latest - span : 0n;
-  const step = 500000n, ranges = []; for (let s = start; s <= latest; s += step) ranges.push([s, s + step - 1n < latest ? s + step - 1n : latest]);
+  const step = 9000000n, ranges = []; for (let s = start; s <= latest; s += step) ranges.push([s, s + step - 1n < latest ? s + step - 1n : latest]);
   const hx = x => '0x' + x.toString(16), calls = [];
   for (const [f, t] of ranges) { calls.push(['eth_getLogs', [{address: USDG, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer, pad(a)]}]]); calls.push(['eth_getLogs', [{address: USDG, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer, null, pad(a)]}]]); }
-  const res = await rpcBatch([...calls, ['eth_call', [{to: USDG, data: '0x70a08231' + pad(a).slice(2)}, 'latest']]], LOG_RPCS);
+  const res = await rpcBatch([...calls, ['eth_call', [{to: USDG, data: '0x70a08231' + pad(a).slice(2)}, 'latest']]], OFFICIAL);
   if (res.slice(0, -1).some(x => x == null)) throw new Error('Could not read the full window right now; nothing was charged. Try again.');
   const balance = BigInt(res.pop() || '0x0'), seen = new Set(), rows = [];
   for (const logs of res) for (const l of logs || []) { const k = l.transactionHash + l.logIndex; if (seen.has(k)) continue; seen.add(k);
@@ -151,9 +152,41 @@ export async function ledger(address, days = 7) {
     reconciles: opening >= 0n, note: opening >= 0n ? 'Balance now = opening + in - out over the window.' : 'Negative implied opening balance: transfers outside the window or a non-standard token path.',
     counterparties, rows: rows.slice(-200).map(({raw, ...r}) => ({...r, link: `${EXPLORER}/tx/${r.tx}`})), by: "JazzCat #1, New Jazz City"};
 }
+
+// ---- Paid: credit-line read for a lender, before a line opens (1 USDG via x402 to JazzCat #1) ----
+const REGISTRY_8004 = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', LINE_PRICE = '1000000';
+const lineReq = resource => ({...ledgerReq(resource), maxAmountRequired: LINE_PRICE,
+  description: "Credit-line read before a lender opens a line to an agent: who holds the ERC-8004 agent ID and since when, its agent wallet, whether the wallet matches, the wallet's USDG history and any existing line on the lender's vault. JazzCat #1, independent: it holds no line in what it reads.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', queryParams: {agentId: {type: 'string'}, vault: {type: 'string', description: 'lender vault (optional)'}, wallet: {type: 'string', description: 'wallet the line would go to (optional)'}}}, output: {type: 'object'}}});
+export async function lineRead(agentId, vault, wallet) {
+  if (!/^\d+$/.test(agentId || '')) throw new Error('agentId (ERC-8004 id on Robinhood Chain) is required.');
+  const id = BigInt(agentId), idHex = '0x' + id.toString(16).padStart(64, '0');
+  const [owner, agentWallet, head] = await rpcBatch([
+    ['eth_call', [{to: REGISTRY_8004, data: '0x6352211e' + idHex.slice(2)}, 'latest']],
+    ['eth_call', [{to: REGISTRY_8004, data: '0x00339509' + idHex.slice(2)}, 'latest']],
+    ['eth_blockNumber', []]], LOG_RPCS);
+  const ownerAddr = owner && owner.length >= 66 ? addr(owner.slice(0, 66)) : null, aw = agentWallet && agentWallet.length >= 66 && !/^0x0+$/.test(agentWallet) ? addr(agentWallet.slice(0, 66)) : null;
+  // ID history: every Transfer of this token on the registry (mint and resales).
+  const latest = BigInt(head), step = 10000000n, hx = x => '0x' + x.toString(16), calls = [];
+  for (let s = 34600000n; s <= latest; s += step) calls.push(['eth_getLogs', [{address: REGISTRY_8004, fromBlock: hx(s), toBlock: hx(s + step - 1n < latest ? s + step - 1n : latest), topics: [T.transfer, null, null, idHex]}]]);
+  const got = await rpcBatch(calls, OFFICIAL); if (got.some(x => x == null)) throw new Error('Could not read the agent ID history right now; nothing was charged. Try again.');
+  const logs = got.flat().filter(Boolean).sort((a, b) => Number(BigInt(a.blockNumber) - BigInt(b.blockNumber)));
+  const transfers = logs.map(l => ({block: Number(BigInt(l.blockNumber)), from: addr(l.topics[1]), to: addr(l.topics[2]), tx: l.transactionHash}));
+  const flags = [], target = (wallet || aw || '').toLowerCase();
+  if (!ownerAddr || ownerAddr === '0x0000000000000000000000000000000000000000') flags.push('agent ID has no owner on this registry');
+  if (!aw) flags.push('no agent wallet set on the Robinhood registry');
+  if (wallet && aw && wallet.toLowerCase() !== aw) flags.push('the line wallet is not the agent wallet the registry names');
+  const resales = transfers.filter(t => !/^0x0+$/.test(t.from)).length;
+  if (resales) flags.push(`agent ID changed hands ${resales} time(s) since mint; last at block ${transfers[transfers.length - 1].block}`);
+  let walletHistory = null; if (target) { try { const L = await ledger(target, 14); walletHistory = {usdgIn: L.usdgIn, usdgOut: L.usdgOut, balanceNow: L.balanceNow, transfers: L.transfers, counterparties: L.counterparties.slice(0, 8)}; if (!L.transfers) flags.push('no USDG history in the last 14 days'); } catch (e) { throw new Error('Could not read the wallet history right now; nothing was charged. Try again.'); } }
+  let existingLine = null; if (vault && /^0x[0-9a-fA-F]{40}$/.test(vault)) { const [ln] = await rpcBatch([['eth_call', [{to: vault, data: '0x1c86bc85' + idHex.slice(2)}, 'latest']]], LOG_RPCS);
+    if (ln && ln.length >= 2 + 64 * 5) { const w = ln.slice(2).match(/.{64}/g); existingLine = {wallet: '0x' + w[0].slice(24), limit: fmt(BigInt('0x' + w[1]), 6), drawn: fmt(BigInt('0x' + w[2]), 6), borrows: Number(BigInt('0x' + w[3])), repays: Number(BigInt('0x' + w[4]))}; } }
+  return {agentId: agentId, chainId: CHAIN_ID, registry: REGISTRY_8004, owner: ownerAddr, agentWallet: aw, lineWallet: wallet || null, idHistory: {minted: transfers[0]?.block ?? null, transfers}, walletHistory, existingLine, flags,
+    verdict: flags.length ? 'read the flags before opening' : 'no flags', by: 'JazzCat #1 (agent #26026), independent: holds no line in what it reads'};
+}
 const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
-async function paid(req, url, work) {
-  const requirement = ledgerReq(url.origin + url.pathname + url.search), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
+async function paid(req, url, work, reqOf = ledgerReq) {
+  const requirement = reqOf(url.origin + url.pathname + url.search), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
   if (!header) return new Response(JSON.stringify({x402Version: 1, error: 'Payment required', accepts: [requirement]}), {status: 402, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE', 'payment-required': b64({x402Version: 1, accepts: [requirement]})}});
   let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return json({x402Version: 1, error: 'Bad X-PAYMENT header', accepts: [requirement]}, 402); }
   const body = JSON.stringify({x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: requirement});
@@ -176,9 +209,10 @@ export default {
     if (req.method === 'GET' && url.pathname === '/') {
       const tx = url.searchParams.get('tx');
       if (tx) { try { return json(await explain(tx)); } catch (e) { return json({error: e.message}, 400); } }
-      return json({name: 'Robinhood Chain transaction explainer', by: 'JazzCat #1 (ERC-8004 agent #26026), New Jazz City (newjazzcity.pages.dev)', mcp: url.origin + '/mcp', try: url.origin + '/?tx=0x…', tool: TOOL.name, readOnly: true, paid: {ledger: url.origin + '/x402/ledger?address=0x…&days=7', price: '0.05 USDG', rail: 'x402 on Robinhood Chain, settled by x402.t0ll.xyz', payTo: CAT1_WALLET}});
+      return json({name: 'Robinhood Chain transaction explainer', by: 'JazzCat #1 (ERC-8004 agent #26026), New Jazz City (newjazzcity.pages.dev)', mcp: url.origin + '/mcp', try: url.origin + '/?tx=0x…', tool: TOOL.name, readOnly: true, paid: {ledger: url.origin + '/x402/ledger?address=0x…&days=7', lineRead: url.origin + '/x402/line-read?agentId=…&vault=0x…&wallet=0x…', price: 'ledger 0.05 USDG, line read 1 USDG', rail: 'x402 on Robinhood Chain, settled by x402.t0ll.xyz', payTo: CAT1_WALLET}});
     }
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
+    if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
     const m = await req.json().catch(() => null); if (!m) return json({jsonrpc: '2.0', id: null, error: {code: -32700, message: 'Parse error'}}, 400);
     if (m.id === undefined) return new Response(null, {status: 202});
