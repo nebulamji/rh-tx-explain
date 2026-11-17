@@ -628,6 +628,44 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {address: {type: 'string', description: 'wallet whose history you copy payees from, 0x…'}}, required: ['address']}}];
 // What an outside agent needs to find, price and pay a read: the menu, never the method.
 const qs = t => Object.keys(t.inputSchema.properties).map(k => `${k}={${k}}`).join('&');
+// Buy on the spot: any wallet (an agent's browser or a person's) picks a read, signs one USDG authorization, and gets the
+// read back in the same click. Same x402 endpoint, same price; nothing settles unless the read succeeds.
+function buyPage(url) {
+  const tools = PAID_TOOLS.map(t => ({route: t.route, title: t.title, price: t.price, inputs: Object.entries(t.inputSchema.properties).map(([k, v]) => ({k, d: v.description || k, req: (t.inputSchema.required || []).includes(k)}))}));
+  const pick = url.searchParams.get('read') || 'money-trail', pre = Object.fromEntries(url.searchParams);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Buy a read · JazzCat #1</title>
+<style>:root{--bg:#0d0d10;--fg:#f2efe6;--mut:#a7a29a;--acc:#f5c542;--card:#17171c}body{background:var(--bg);color:var(--fg);font:16px/1.5 ui-monospace,Menlo,monospace;margin:0}main{max-width:720px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}p{color:var(--mut)}label{display:block;margin:12px 0 4px;color:var(--mut)}select,input{width:100%;box-sizing:border-box;background:var(--card);color:var(--fg);border:1px solid #333;border-radius:8px;padding:10px;font:inherit}button{margin-top:16px;width:100%;padding:14px;border:0;border-radius:10px;background:var(--acc);color:#111;font:inherit;font-weight:700;cursor:pointer}button:disabled{opacity:.5}pre{background:var(--card);padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:13px}#st{color:var(--acc);min-height:1.5em}a{color:var(--acc)}</style></head>
+<body><main><h1>Buy a read from JazzCat #1</h1><p>Pick a read, connect a wallet on Robinhood Chain with USDG, sign one authorization. The read comes back here. Nothing is charged if the read fails.</p>
+<label for="read">Read</label><select id="read"></select><div id="fields"></div><button id="go">Pay and read</button><div id="st"></div><pre id="out" hidden></pre>
+<p>Pays ${esc(CAT1_WALLET.toLowerCase())} in USDG ${esc(USDG)}. Agents: call the same URL over x402, menu at <a href="/llms.txt">/llms.txt</a>.</p></main>
+<script>
+const TOOLS=${JSON.stringify(tools).replace(/</g, '\\u003c')}, PRE=${JSON.stringify(pre).replace(/</g, '\\u003c')}, USDG='${USDG}', CHAIN='0x1237';
+const $=i=>document.getElementById(i), sel=$('read');
+TOOLS.forEach(t=>{const o=document.createElement('option');o.value=t.route;o.textContent=t.title+' · '+t.price+' USDG';sel.appendChild(o)});
+sel.value=TOOLS.some(t=>t.route===PRE.read)?PRE.read:${JSON.stringify(pick)};
+function fields(){const t=TOOLS.find(x=>x.route===sel.value);$('fields').innerHTML='';t.inputs.forEach(f=>{const l=document.createElement('label');l.textContent=f.d+(f.req?'':' (optional)');const i=document.createElement('input');i.id='f_'+f.k;i.value=PRE[f.k]||'';i.placeholder=f.k;$('fields').append(l,i)});$('go').textContent='Pay '+t.price+' USDG and read'}
+sel.onchange=fields;fields();
+const st=m=>$('st').textContent=m, b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+$('go').onclick=async()=>{const eth=window.ethereum;if(!eth){st('No wallet found: open this page in a wallet browser, or call the URL over x402.');return}
+ const t=TOOLS.find(x=>x.route===sel.value), q=new URLSearchParams();for(const f of t.inputs){const v=$('f_'+f.k).value.trim();if(f.req&&!v){st('Fill in '+f.k);return}if(v)q.set(f.k,v)}
+ const u='/x402/'+t.route+'?'+q;$('go').disabled=true;$('out').hidden=true;
+ try{st('Connecting…');const [from]=await eth.request({method:'eth_requestAccounts'});
+  try{await eth.request({method:'wallet_switchEthereumChain',params:[{chainId:CHAIN}]})}catch(e){if(e.code===4902)await eth.request({method:'wallet_addEthereumChain',params:[{chainId:CHAIN,chainName:'Robinhood Chain',nativeCurrency:{name:'Ether',symbol:'ETH',decimals:18},rpcUrls:['https://rpc.mainnet.chain.robinhood.com'],blockExplorerUrls:['https://robinhoodchain.blockscout.com']}]});else throw e}
+  st('Getting the price…');const r0=await fetch(u);if(r0.status!==402){st('Unexpected answer '+r0.status);$('out').hidden=false;$('out').textContent=await r0.text();return}
+  const offer=(await r0.json()).accepts.find(a=>a.network==='robinhood');
+  const bal=BigInt(await eth.request({method:'eth_call',params:[{to:USDG,data:'0x70a08231'+from.slice(2).padStart(64,'0')},'latest']}));
+  if(bal<BigInt(offer.maxAmountRequired)){st('This wallet holds '+Number(bal)/1e6+' USDG; the read costs '+Number(offer.maxAmountRequired)/1e6+'.');return}
+  const nonce='0x'+[...crypto.getRandomValues(new Uint8Array(32))].map(x=>x.toString(16).padStart(2,'0')).join('');
+  const auth={from,to:offer.payTo,value:offer.maxAmountRequired,validAfter:'0',validBefore:String(Math.floor(Date.now()/1000)+600),nonce};
+  const typed={types:{EIP712Domain:[{name:'name',type:'string'},{name:'version',type:'string'},{name:'chainId',type:'uint256'},{name:'verifyingContract',type:'address'}],TransferWithAuthorization:[{name:'from',type:'address'},{name:'to',type:'address'},{name:'value',type:'uint256'},{name:'validAfter',type:'uint256'},{name:'validBefore',type:'uint256'},{name:'nonce',type:'bytes32'}]},primaryType:'TransferWithAuthorization',domain:{name:offer.extra.name,version:offer.extra.version,chainId:4663,verifyingContract:offer.asset},message:auth};
+  st('Sign '+Number(offer.maxAmountRequired)/1e6+' USDG to JazzCat #1 in your wallet…');
+  const signature=await eth.request({method:'eth_signTypedData_v4',params:[from,JSON.stringify(typed)]});
+  st('Reading the chain…');const r1=await fetch(u,{headers:{'X-PAYMENT':b64({x402Version:1,scheme:'exact',network:'robinhood',payload:{signature,authorization:auth}})}});
+  const j=await r1.json();$('out').hidden=false;$('out').textContent=JSON.stringify(j,null,2);
+  st(r1.ok?('Paid'+(j.payment&&j.payment.tx?': tx '+j.payment.tx:'')+'. Your read is below.'):('Not charged: '+(j.error||r1.status)));
+ }catch(e){st('Stopped: '+(e.message||e))}finally{$('go').disabled=false}};
+</script></body></html>`;
+}
 function llmsTxt(origin) {
   return [`# New Jazz City · JazzCat reads`, ``,
     `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
@@ -637,7 +675,8 @@ function llmsTxt(origin) {
     `- x402 v1 (network "robinhood") or v2 (network "eip155:4663"), exact scheme, USDG ${USDG}, payTo JazzCat #1 ${CAT1_WALLET.toLowerCase()}. Pay the full address, never one copied by its ends.`,
     `- Base: USDC ${BASE_USDC.toLowerCase()} on eip155:8453 is accepted where the 402 offers it.`,
     `- Every Cat sells the same reads at its own wallet: add ?cat=N.`,
-    `- Machine-readable: ${origin}/.well-known/x402 and ${origin}/.well-known/agent-card.json`, ``,
+    `- Machine-readable: ${origin}/.well-known/x402 and ${origin}/.well-known/agent-card.json`,
+    `- Buy on the spot from any wallet: ${origin}/buy?read={route} (for example ${origin}/buy?read=money-trail&token={token})`, ``,
     `## Free`,
     `- [Explain any Robinhood Chain transaction](${origin}/?tx={hash})`,
     `- [Who controls an ERC-8004 agent](${origin}/control?agentId={id})`,
@@ -649,7 +688,7 @@ function agentCard(origin) {
   return {name: 'JazzCat #1 · New Jazz City reads', description: 'Chain reads for agents, verdict first, paid per call over x402.', url: origin,
     provider: {organization: 'New Jazz City'}, identity: {standard: 'ERC-8004', chainId: 4663, registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: 26063},
     payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453'], asset: {robinhood: USDG, base: BASE_USDC}, payTo: CAT1_WALLET.toLowerCase()},
-    mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json',
+    mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json', buy: origin + '/buy?read={route}',
     skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, input: t.inputSchema}))};
 }
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
@@ -692,6 +731,7 @@ export default {
       try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
