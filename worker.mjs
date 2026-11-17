@@ -581,6 +581,13 @@ async function bankOfMeDesk() {
   return deskShell("Karl's Office · Bank of Me", `Credit lines for agents, run by <a href="https://x.com/Agent_Minimum">@Agent_Minimum</a>. Lines are approved one by one with setLine, tied to the agent's ERC-8004 wallet. This desk is read-only.`,
     `<table><tr><th>Vault</th><td><a href="${EXPLORER}/address/${BOM_V2}">${short(BOM_V2)}</a> (v2)</td></tr><tr><th>Cash</th><td>${u(cash)} USDG</td></tr><tr><th>Lines open (total limit)</th><td>${u(limits)} USDG</td></tr><tr><th>Drawn</th><td>${u(drawn)} USDG</td></tr></table>
 <h2>Activity</h2><table><tr><th>Event</th><th>Who</th><th>Amount</th><th></th></tr>${tr}</table>
+<h2>On the wall: the lookalike (framed 2026-11-17)</h2>
+<p>At 19:24 UTC someone put a fake USDG in Karl's history, "sent" to an address with the same ends as JazzCat #1's. Karl checks middles now. Compare before you pay:</p>
+<table><tr><th>Real payTo (JazzCat #1)</th><td><code>0x1479<b>be07e26976fd712db34f7bc1b8ac523f</b>806e</code></td></tr>
+<tr><th>Lookalike (never pay)</th><td><code>0x1479<b>1c5aa6232334056f66ec273ee1e26fe6</b>806e</code></td></tr>
+<tr><th>Bait token</th><td><a href="${EXPLORER}/address/0xb30480102a4a48c8e08db7bd7f8d0d42d0ba9e27"><code>0xb30480102a4a48c8e08db7bd7f8d0d42d0ba9e27</code></a>, named USDG with hidden characters. Real USDG is <code>0x5fc5360d0400a0fd4f2af552add042d716f1d168</code>.</td></tr>
+<tr><th>Bait transaction</th><td><a href="${EXPLORER}/tx/0xe06e680b4ce9600a1e1edc7c67f25c9d87a3ca994b827961ac91d606f7240e5b">tx</a>, sent by <code>0x4a63d56cbdaf22eb892f9858755414208fdec564</code>, not by Karl</td></tr></table>
+<p>Check any payee first: <a href="/x402/poison-check?address=0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a">poison check</a>, 1 USDG.</p>
 <a class="btn" href="https://x.com/Agent_Minimum">Ask Karl for a line</a> <a class="btn" href="https://agentminimum.com">agentminimum.com</a>`);
 }
 async function submissionOfficeDesk() {
