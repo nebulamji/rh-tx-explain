@@ -271,7 +271,7 @@ export async function haltCheck(symbol) {
   for (const it of (nq || '').match(/<item>[\s\S]*?<\/item>/g) || []) { const f = Object.fromEntries([...it.matchAll(/<ndaq:(\w+)>([\s\S]*?)<\/ndaq:\1>/g)].map(m => [m[1], m[2].trim()]));
     if (f.IssueSymbol !== s) continue; const r = etMs(f.ResumptionDate, f.ResumptionTradeTime);
     lists.push({source: 'Nasdaq Trader halts', venue: f.Market, reason: f.ReasonCode, haltedAtEt: `${f.HaltDate} ${(f.HaltTime || '').slice(0, 8)}`, resumesAtEt: f.ResumptionTradeTime ? `${f.ResumptionDate} ${f.ResumptionTradeTime}` : null, haltedNow: !r || r > now}); }
-  const exchangeHalted = lists.some(l => l.haltedNow), row = hq?.rows?.find(r => r.symbol === s);
+  const exchangeHalted = lists.some(l => l.haltedNow) && !lists.some(l => l.resumesAtEt && !l.haltedNow), row = hq?.rows?.find(r => r.symbol === s);
   const oracle = row ? {source: 'Harmonic equities oracle (issuer-relayed)', token: row.address, verdict: row.verdict, issuerHalted: row.issuer?.halted ?? null, rowAt: row.at} : null;
   const oracleHalted = oracle ? oracle.verdict === 'halted' || oracle.issuerHalted === true : null;
   return {symbol: s, checkedAt: new Date(now).toISOString(), exchangeHalted, exchangeLists: lists, listsRead: {nyse: !!ny, nasdaq: !!nq}, oracle,
