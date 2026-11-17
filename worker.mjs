@@ -716,7 +716,6 @@ function llmsTxt(origin) {
     `- Machine-readable: ${origin}/.well-known/x402 and ${origin}/.well-known/agent-card.json`,
     `- Buy on the spot from any wallet: ${origin}/buy?read={route} (for example ${origin}/buy?read=money-trail&token={token})`, ``,
     `## Free`,
-    `- [Launch board: every Robinhood Chain launch of the last 24h with a free verdict](${origin}/launches) (JSON: ${origin}/launches?format=json)`,
     `- [Explain any Robinhood Chain transaction](${origin}/?tx={hash})`,
     `- [Who controls an ERC-8004 agent](${origin}/control?agentId={id})`,
     `- MCP (Streamable HTTP, POST): ${origin}/mcp`, ``,
