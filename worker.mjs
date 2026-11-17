@@ -508,6 +508,28 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   if (!st.success) return offer(st.errorReason || 'Settlement failed');
   return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: chosen.payTo, network: onBase ? 'base' : 'robinhood'}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
 }
+
+// Raeto Pay: the same reads sold as Raeto builder tools (find_tools / use_tool). Unpaid call -> 402 with a Raeto price for
+// JazzCat #1's own Raeto account (its 6551 wallet); paid call -> verify the receipt with Raeto, do the read, capture on success.
+const RAETO = 'https://api.raeto.cc', RAETO_PAYTO = '0x1479be07e26976fd712db34f7bc1b8ac523f806e';
+const RAETO_TOOLS = {
+  halt_check: {price: 0.25, run: a => haltCheck(a.symbol)},
+  transfer_read: {price: 2, run: a => transferRead(a.contract)},
+  money_trail: {price: 1, run: a => moneyTrail(a.token)},
+  usdg_ledger: {price: 0.05, run: a => ledger(a.address, a.days)},
+};
+async function raetoTool(req, env, name, origin) {
+  const t = RAETO_TOOLS[name]; if (!t) return json({error: 'no such tool'}, 404);
+  const resource = '/raeto/' + name, receipt = req.headers.get('x-raeto-receipt');
+  const quote = {error: 'payment_required', message: `This call costs $${t.price} in Raeto credits. Pay it and retry with the X-Raeto-Receipt header.`, raeto: {payTo: RAETO_PAYTO, amountUsd: t.price, resource, payUrl: RAETO + '/v1/pay', docs: RAETO + '/v1/pay/info'}};
+  if (!receipt) return json(quote, 402);
+  const call = (path, body) => fetch(RAETO + path, {method: 'POST', headers: {authorization: 'Bearer ' + env.RAETO_KEY, 'content-type': 'application/json'}, body: JSON.stringify(body)}).then(async r => ({ok: r.ok, status: r.status, j: await r.json().catch(() => null)}));
+  const v = await call('/v1/pay/verify', {receipt, minUsd: t.price, resource, capture: false});
+  if (!v.ok) return json({...quote, message: 'Payment not accepted: ' + (v.j?.error?.message || v.status)}, 402);
+  const args = await req.json().catch(() => ({}));
+  try { const out = await t.run(args || {}); await call('/v1/pay/capture', {receipt}); return json({...out, paid: {via: 'Raeto Pay', usd: t.price, seller: 'JazzCat #1'}}); }
+  catch (e) { await call('/v1/pay/release', {receipt, reason: 'call failed'}); return json({error: e.message, charged: false}, 400); }
+}
 const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain transaction',
   description: 'Takes a Robinhood Chain (chain 4663) transaction hash and returns a short plain-language summary of what happened: swaps, token and NFT transfers, mints, burns, approvals (flags unlimited ones), contract deployments, failures and the fee. Read-only; built from the chain\'s own data, no model in the loop.',
   inputSchema: {type: 'object', properties: {hash: {type: 'string', description: '0x-prefixed transaction hash'}}, required: ['hash']}};
@@ -571,6 +593,7 @@ export default {
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
     if (url.pathname === '/halt-check/status' && req.method === 'GET') { try { const r = await haltCheck('AAPL'); return json({listsRead: r.listsRead, oracleRead: !!r.oracle, checkedAt: r.checkedAt}); } catch (e) { return json({error: e.message}, 502); } }
+    { const m = url.pathname.match(/^\/raeto\/([a-z_]+)$/); if (m && req.method === 'POST') { count(env, ctx, 'raeto:' + m[1]); return raetoTool(req, env, m[1], url.origin); } }
     if (url.pathname === '/x402/halt-check' && req.method === 'GET') return paid(req, url, () => haltCheck(url.searchParams.get('symbol')), haltReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
