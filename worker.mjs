@@ -602,7 +602,7 @@ async function submissionOfficeDesk() {
 <a class="btn" href="https://flow-kg4x.vercel.app/desk">Hash Board and ask bar</a> <a class="btn" href="https://feed.toughlovesec.win/api/grade-feed">Raw feed</a>`);
 }
 const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain transaction',
-  description: 'Takes a Robinhood Chain (chain 4663) transaction hash and returns a short plain-language summary of what happened: swaps, token and NFT transfers, mints, burns, approvals (flags unlimited ones), contract deployments, failures and the fee. Read-only; built from the chain\'s own data, no model in the loop.',
+  description: 'Takes a Robinhood Chain (chain 4663) transaction hash and returns a short plain-language summary of what happened: swaps, token and NFT transfers, mints, burns, approvals (flags unlimited ones), contract deployments, failures and the fee. Read-only; built from the chain\'s own data, no model in the loop. Read-only: no keys, no writes. Remote endpoint https://njc-tx-explain.departmentofjazz.workers.dev/mcp, reading public Robinhood Chain RPC; every answer carries the raw fields (hash, from, to, value, fee, block time) beside the summary and links the Blockscout receipt.',
   inputSchema: {type: 'object', properties: {hash: {type: 'string', description: '0x-prefixed transaction hash'}}, required: ['hash']}};
 const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-8004 agent',
   description: 'Free. For an ERC-8004 agent id on Robinhood Chain: who holds it, its agent wallet, whether they match, and its registration URI. Read from the chain.',
