@@ -147,11 +147,17 @@ export async function ledger(address, days = 7) {
   rows.sort((x, y) => x.block - y.block);
   const inSum = rows.filter(r => r.dir === 'in').reduce((s, r) => s + r.raw, 0n), outSum = rows.filter(r => r.dir === 'out').reduce((s, r) => s + r.raw, 0n);
   const by = new Map(); for (const r of rows) { const c = by.get(r.counterparty) ?? {in: 0n, out: 0n, n: 0}; c[r.dir] += r.raw; c.n++; by.set(r.counterparty, c); }
-  const counterparties = [...by].map(([k, c]) => ({address: k, in: fmt(c.in, 6), out: fmt(c.out, 6), transfers: c.n})).sort((x, y) => y.transfers - x.transfers).slice(0, 25);
+  const counterparties = [...by].map(([k, c]) => ({address: k, ...(BRIDGES[k] ? {label: `${BRIDGES[k]} bridge: bridged in from another chain`, kind: 'bridged'} : {}), in: fmt(c.in, 6), out: fmt(c.out, 6), transfers: c.n})).sort((x, y) => y.transfers - x.transfers).slice(0, 25);
   const opening = balance - inSum + outSum;
+  // funding: the first USDG in the window. A bridge fill says bridged and names the origin sender from the bridge's own record.
+  const first = rows.find(r => r.dir === 'in'); let funding = null;
+  if (first) { funding = {from: first.counterparty, tx: first.tx, usdg: first.usdg, kind: BRIDGES[first.counterparty] ? 'bridged' : 'direct'};
+    if (BRIDGES[first.counterparty]) { funding.via = BRIDGES[first.counterparty]; funding.recheck = 'https://api.relay.link/requests/v2?hash=' + first.tx;
+      const rr = await fetch(funding.recheck, {headers: {'user-agent': 'njc/1'}, signal: AbortSignal.timeout(10000)}).then(r => r.ok ? r.json() : null).catch(() => null), q = rr?.requests?.[0];
+      funding.origin = q ? {sender: q.user, chainId: q.data?.inTxs?.[0]?.chainId ?? null, tx: q.data?.inTxs?.[0]?.hash ?? null, status: q.status} : 'bridged; origin not returned by the bridge record, recheck at the link'; } }
   return {address: a, chainId: CHAIN_ID, windowDays: days, fromBlock: Number(start), toBlock: Number(latest), transfers: rows.length,
     usdgIn: fmt(inSum, 6), usdgOut: fmt(outSum, 6), balanceNow: fmt(balance, 6), impliedOpeningBalance: fmt(opening, 6),
-    reconciles: opening >= 0n, note: opening >= 0n ? 'Balance now = opening + in - out over the window.' : 'Negative implied opening balance: transfers outside the window or a non-standard token path.',
+    reconciles: opening >= 0n, funding, note: opening >= 0n ? 'Balance now = opening + in - out over the window.' : 'Negative implied opening balance: transfers outside the window or a non-standard token path.',
     counterparties, rows: rows.slice(-200).map(({raw, ...r}) => ({...r, link: `${EXPLORER}/tx/${r.tx}`})), by: "JazzCat #1, New Jazz City"};
 }
 
@@ -189,6 +195,7 @@ export async function lineRead(agentId, vault, wallet) {
 
 // ---- Paid: money trail for a Robinhood Chain coin (1 USDG via x402 to JazzCat #1) ----
 const KNOWN = {'0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap v4 PoolManager: pool liquidity, not a holder'};
+const BRIDGES = {'0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f': 'Relay'}; // a funder trace that reaches a bridge says bridged, never unknown
 const TRAIL_PRICE = '1000000', REG_START = 34600000n, ZERO_A = '0x0000000000000000000000000000000000000000', DEAD = '0x000000000000000000000000000000000000dead';
 const trailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_PRICE,
   description: "Money trail for a Robinhood Chain coin: who launched it and through what, where the minted supply went, who bought in the first blocks, the top holders (wallet or contract) and their share, and the launcher's USDG in and out. JazzCat #1, independent: read from the chain, nothing taken from the project.",
