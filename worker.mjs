@@ -2,6 +2,7 @@ import {baseTrail} from './base.mjs';
 import {solTrail} from './sol.mjs';
 import {tbaRead} from './tba.mjs';
 import {poisonCheck} from './poison.mjs';
+import {incomeRead} from './income.mjs';
 import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.json' with {type: 'json'};
 const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
@@ -306,6 +307,9 @@ const transferReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRA
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/transfer-read?contract={contract}', queryParams: {contract: {type: 'string', description: 'contract address 0x…'}}}}});
 // Poison check before paying an address copied from a wallet's history: fake look-alike tokens and look-alike
 // counterparties (same first/last characters, different middle). 1 USDG to the Cat.
+const incomeReq = resource => ({...ledgerReq(resource), maxAmountRequired: '1000000',
+  description: "Income read for an agent on Robinhood Chain: every USDG into its wallet over N days (max 60) by payer, with its own wallets, loans and swap proceeds split out from outside payers. Read from the chain by JazzCat #1.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/income-read?agent={agent}&days={days}', queryParams: {agent: {type: 'string', description: 'ERC-8004 agent id, or a wallet 0x…'}, days: {type: 'number', description: 'days back, max 60'}}}}});
 const poisonReq = resource => ({...ledgerReq(resource), maxAmountRequired: '1000000',
   description: "Poison check before you pay an address copied from a wallet's history on Robinhood Chain: fake look-alike tokens (USDG with hidden characters) and look-alike counterparties (same first and last characters, different middle), with the real address. Read from the chain by JazzCat #1.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/poison-check?address={address}', queryParams: {address: {type: 'string', description: 'wallet whose history you copy payees from, 0x…'}}}}});
@@ -625,7 +629,9 @@ const PAID_TOOLS = [
   {name: 'wallet_handover', route: 'tba-read', price: '2', title: 'Agent-wallet handover read (ERC-6551) before you accept or spend from it', description: 'Paid, 2 USDG over x402: for an ERC-6551 agent wallet on Base or Robinhood Chain, who owns it now, which callers can still act (live, or dormant from a past owner), overrides and lock.',
     inputSchema: {type: 'object', properties: {account: {type: 'string', description: '6551 wallet 0x…'}, chain: {type: 'string', description: 'base or robinhood'}}, required: ['account']}},
   {name: 'poison_check', route: 'poison-check', price: '1', title: 'Poison check before paying an address copied from a wallet history', description: 'Paid, 1 USDG over x402: look-alike tokens and look-alike counterparties (same first and last characters, different middle) in a wallet history on Robinhood Chain, with the real address.',
-    inputSchema: {type: 'object', properties: {address: {type: 'string', description: 'wallet whose history you copy payees from, 0x…'}}, required: ['address']}}];
+    inputSchema: {type: 'object', properties: {address: {type: 'string', description: 'wallet whose history you copy payees from, 0x…'}}, required: ['address']}},
+  {name: 'income_read', route: 'income-read', price: '1', title: 'Income read: who actually paid an agent (outside payers vs own wallets, loans, swaps)', description: 'Paid, 1 USDG over x402: every USDG into an agent wallet over N days (max 60) by payer, with its own wallets, loans and swap proceeds split out from outside payers.',
+    inputSchema: {type: 'object', properties: {agent: {type: 'string', description: 'ERC-8004 agent id, or a wallet 0x…'}, days: {type: 'number', description: 'days back, max 60'}}, required: ['agent']}}];
 // route -> [read from the query, its x402 requirement], shared by the HTTP routes' logic and MCP in-band payment
 const PAID_RUN = {
   'money-trail': [q => TRAILS[(q.get('token') || '').toLowerCase()] ?? moneyTrail(q.get('token')), r => trailReq(r)],
@@ -636,7 +642,8 @@ const PAID_RUN = {
   'halt-check': [q => haltCheck(q.get('symbol')), r => haltReq(r)],
   'ledger': [q => ledger(q.get('address'), q.get('days')), r => ledgerReq(r)],
   'tba-read': [q => tbaRead(q.get('account'), q.get('chain')), r => tbaReq(r)],
-  'poison-check': [q => poisonCheck(q.get('address')), r => poisonReq(r)]};
+  'poison-check': [q => poisonCheck(q.get('address')), r => poisonReq(r)],
+  'income-read': [q => incomeRead(q.get('agent'), q.get('days')), r => incomeReq(r)]};
 // What an outside agent needs to find, price and pay a read: the menu, never the method.
 const qs = t => Object.keys(t.inputSchema.properties).map(k => `${k}={${k}}`).join('&');
 // Buy on the spot: any wallet (an agent's browser or a person's) picks a read, signs one USDG authorization, and gets the
@@ -758,13 +765,14 @@ export default {
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
-      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/tba-read?account={account}&chain={chain}', '2'], ['/x402/poison-check?address={address}', '1'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/sol-trail?mint={mint}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
+      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/tba-read?account={account}&chain={chain}', '2'], ['/x402/poison-check?address={address}', '1'], ['/x402/income-read?agent={agent}&days={days}', '1'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/sol-trail?mint={mint}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
         accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
       quote: url.origin + '/quote?token={token}&usd={usd}&chain=robinhood'});
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/base-trail' && req.method === 'GET') return paid(req, url, () => baseTrail(url.searchParams.get('token')), baseTrailReq);
     if (url.pathname === '/x402/sol-trail' && req.method === 'GET') return paid(req, url, () => solTrail(url.searchParams.get('mint')), solTrailReq);
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
+    if (url.pathname === '/x402/income-read' && req.method === 'GET') return paid(req, url, () => incomeRead(url.searchParams.get('agent'), url.searchParams.get('days')), incomeReq);
     if (url.pathname === '/x402/poison-check' && req.method === 'GET') return paid(req, url, () => poisonCheck(url.searchParams.get('address')), poisonReq);
     if (url.pathname === '/x402/tba-read' && req.method === 'GET') return paid(req, url, () => tbaRead(url.searchParams.get('account'), url.searchParams.get('chain')), tbaReq);
     if (url.pathname === '/desk/bank-of-me' && req.method === 'GET') { count(env, ctx, 'desk:bank-of-me'); try { return await bankOfMeDesk(); } catch (e) { return json({error: e.message}, 502); } }
