@@ -127,6 +127,7 @@ export async function explain(hash) {
 
 // ---- Paid: USDG ledger + reconciliation for any address (x402, settled by Toll's keyless facilitator, paid to JazzCat #1) ----
 const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168', CAT1_WALLET = '0x1479bE07E26976Fd712db34f7Bc1B8Ac523f806e', FACILITATOR = 'https://x402.t0ll.xyz';
+const PRIORS_FACILITATOR = 'https://facilitator.priors.trade'; let PRIORS_KEY = null; // set per request from env.PRIORS_KEY
 const LEDGER_PRICE = '50000'; // 0.05 USDG (6 decimals)
 const ledgerReq = resource => ({scheme: 'exact', network: 'robinhood', maxAmountRequired: LEDGER_PRICE, resource,
   description: "USDG ledger for any Robinhood Chain address: every USDG in and out over the last N days (max 14), with counterparties, tx links and a reconciliation against the on-chain balance. JazzCat #1's audit method, automated.",
@@ -509,10 +510,15 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   if (onBase && !baseReq) return offer('This Cat takes Base USDC only when its holder is a plain wallet; pay on Robinhood Chain');
   const isV2 = payload.x402Version === 2 || /^eip155:/.test(net), chosen = onBase ? baseReq : requirement, facilitator = onBase ? BASE_FACILITATOR : FACILITATOR;
   const body = JSON.stringify(isV2 ? {x402Version: 2, paymentPayload: payload, paymentRequirements: onBase ? base2 : req2} : {x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: chosen});
-  const v = await fetch(facilitator + '/verify', {method: 'POST', headers: {'content-type': 'application/json'}, body}).then(r => r.json()).catch(e => ({isValid: false, invalidReason: e.message}));
-  if (!v.isValid) return offer(v.invalidReason || 'Payment not valid');
+  // JazzCat #1's Robinhood sales settle through the Priors facilitator first (its merchant key), so each one is a receipt
+  // on the Cat's Priors record and in its find_services listing; Toll stays the fallback and settles every other Cat.
+  const via = async f => { const headers = {'content-type': 'application/json', ...(f === PRIORS_FACILITATOR ? {authorization: 'Bearer ' + PRIORS_KEY} : {})};
+    const v = await fetch(f + '/verify', {method: 'POST', headers, body}).then(r => r.json()).catch(e => ({isValid: false, invalidReason: e.message})); return {f, headers, v}; };
+  let pick = !onBase && PRIORS_KEY && chosen.payTo.toLowerCase() === CAT1_WALLET.toLowerCase() ? await via(PRIORS_FACILITATOR) : null;
+  if (!pick?.v.isValid) pick = await via(facilitator);
+  if (!pick.v.isValid) return offer(pick.v.invalidReason || 'Payment not valid');
   let result; try { result = await work(); } catch (e) { return json({error: e.message}, 400); } // a failed read is never charged
-  const st = await fetch(facilitator + '/settle', {method: 'POST', headers: {'content-type': 'application/json'}, body}).then(r => r.json()).catch(e => ({success: false, errorReason: e.message}));
+  const st = await fetch(pick.f + '/settle', {method: 'POST', headers: pick.headers, body}).then(r => r.json()).catch(e => ({success: false, errorReason: e.message}));
   if (!st.success) return offer(st.errorReason || 'Settlement failed');
   return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: chosen.payTo, network: onBase ? 'base' : 'robinhood'}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
 }
@@ -596,6 +602,7 @@ const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers
 
 export default {
   async fetch(req, env, ctx) {
+    PRIORS_KEY = env.PRIORS_KEY || null;
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, {headers: {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST'}});
     if (req.method === 'GET' && url.pathname === '/') {
@@ -665,7 +672,7 @@ export default {
       const cat = url.searchParams.get('cat') || '1'; let payTo;
       try { payTo = await catWallet(cat); } catch (e) { return ok({content: [{type: 'text', text: e.message}], isError: true}); }
       const q = new URLSearchParams(Object.entries(m.params.arguments || {}).map(([k, v]) => [k, String(v)])); if (cat !== '1') q.set('cat', cat);
-      const pay = {url: `${url.origin}/x402/${pt.route}?${q}`, price: pt.price + ' USDG', payTo, rail: 'x402: USDG on Robinhood Chain ("robinhood" / eip155:4663, settled by x402.t0ll.xyz) or USDC on Base ("base" / eip155:8453, paid to the Cat holder, settled by facilitator.payai.network)', seller: 'JazzCat #' + cat};
+      const pay = {url: `${url.origin}/x402/${pt.route}?${q}`, price: pt.price + ' USDG', payTo, rail: 'x402: USDG on Robinhood Chain ("robinhood" / eip155:4663, settled by facilitator.priors.trade, x402.t0ll.xyz as fallback) or USDC on Base ("base" / eip155:8453, paid to the Cat holder, settled by facilitator.payai.network)', seller: 'JazzCat #' + cat};
       return ok({content: [{type: 'text', text: `Paid read, ${pay.price} to JazzCat #${cat}'s wallet ${payTo}. GET ${pay.url} and answer the 402 with an X-PAYMENT header. A failed read is never charged.`}], structuredContent: {paymentRequired: pay}});
     }
     return json({jsonrpc: '2.0', id: m.id, error: {code: -32601, message: 'Method not found'}});
