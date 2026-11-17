@@ -695,6 +695,15 @@ function jobPage(id) {
   return deskShell('Job: ' + j.title, `Buyer: ${esc(j.buyer)} · Worker: ${esc(j.worker)}`,
     `<table><tr><th>Escrow</th><td>${esc(j.escrow)}</td></tr><tr><th>The work</th><td>${esc(j.work)}</td></tr><tr><th>Pass/fail criteria (they judge the work, never the verdict)</th><td><ol>${j.criteria.map(c => `<li>${esc(c)}</li>`).join('')}</ol></td></tr><tr><th>Release</th><td>${esc(j.release)}</td></tr></table>`, 'job, written to the buyer\'s format');
 }
+// Launch board: every Robinhood Chain launch of the last 24h with a free one-line verdict, the full read one click away
+async function launchBoard(env, url) {
+  const b = JSON.parse((await env.USAGE.get('launches:board')) || '{"launches":[]}');
+  if (url.searchParams.get('format') === 'json') return json(b);
+  const ago = t => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 60 ? m + 'm' : Math.round(m / 60) + 'h'; };
+  const rows = b.launches.map(l => `<tr><td><b>${esc(l.symbol || '?')}</b><br><code>${esc(l.token.slice(0, 10))}…</code></td><td>${esc(l.pad)}</td><td>${ago(l.launchedAt)} ago</td><td>${l.error ? 'not read yet' : esc(l.verdict)}${l.flags?.length ? '<br><small>' + l.flags.map(esc).join('<br>') + '</small>' : ''}</td><td>${l.error ? '' : (l.topWalletPct ?? 0) + '%'}</td><td><a href="/buy?read=money-trail&token=${esc(l.token)}">full read</a></td></tr>`).join('') || '<tr><td colspan="6">No launches read yet.</td></tr>';
+  return deskShell('Launch board · Robinhood Chain', `Every launch on Lift and Clanker in the last 24 hours, read from the chain about 20 minutes after it opens: the verdict free, the full money trail one click away (1 USDG). Updated ${b.updatedAt ? ago(b.updatedAt) + ' ago' : 'soon'}.`,
+    `<table><tr><th>Coin</th><th>Pad</th><th>Launched</th><th>Verdict</th><th>Top wallet</th><th></th></tr>${rows}</table><p>Agents: <a href="/launches?format=json">JSON</a> · <a href="/llms.txt">menu</a></p>`, 'launch board');
+}
 function llmsTxt(origin) {
   return [`# New Jazz City · JazzCat reads`, ``,
     `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
@@ -707,6 +716,7 @@ function llmsTxt(origin) {
     `- Machine-readable: ${origin}/.well-known/x402 and ${origin}/.well-known/agent-card.json`,
     `- Buy on the spot from any wallet: ${origin}/buy?read={route} (for example ${origin}/buy?read=money-trail&token={token})`, ``,
     `## Free`,
+    `- [Launch board: every Robinhood Chain launch of the last 24h with a free verdict](${origin}/launches) (JSON: ${origin}/launches?format=json)`,
     `- [Explain any Robinhood Chain transaction](${origin}/?tx={hash})`,
     `- [Who controls an ERC-8004 agent](${origin}/control?agentId={id})`,
     `- MCP (Streamable HTTP, POST): ${origin}/mcp`, ``,
@@ -744,7 +754,7 @@ export default {
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
     if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
-    if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) if (!k.name.startsWith('desk:') && !k.name.startsWith('receipt:')) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
+    if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) if (!k.name.startsWith('desk:') && !k.name.startsWith('receipt:') && !k.name.startsWith('launches:')) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
     { const r = url.pathname.match(/^\/receipt\/(0x[0-9a-fA-F]{64})$/); if (r && req.method === 'GET' && env?.USAGE) { const v = await env.USAGE.get('receipt:' + r[1].toLowerCase());
       return v ? new Response(v, {headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}}) : json({error: 'no receipt with that hash'}, 404); } }
     // BatchDesk delivery road: each delivered item's work lands here as JSON the minute it prints; deliver() commits keccak256 of
@@ -760,6 +770,7 @@ export default {
       try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname === '/launches' && req.method === 'GET') { count(env, ctx, 'launches'); return await launchBoard(env, url); }
     if (url.pathname.startsWith('/jobs/') && req.method === 'GET') { const h = jobPage(url.pathname.slice(6)); return h || json({error: 'No such job.'}, 404); }
     if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
