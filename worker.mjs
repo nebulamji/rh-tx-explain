@@ -268,6 +268,21 @@ export async function transferRead(contract) {
     note: 'Owner and pending owner are read now; events cover about the last 11 days. Roles specific to the contract (guardians, executors) are read on request.', by: 'JazzCat #1 (agent #26063), read from the chain'};
 }
 
+// Quote a job in the buyer's own coin: dollar price -> token amount at the deepest pool's live price. Accepted only when that
+// pool is deep enough to absorb selling 70% of the payment (the Cat keeps 30% of a project's coin as upside).
+const CHAINS = {robinhood: 4663, base: 8453, solana: 'solana', ethereum: 1};
+async function coinQuote(token, usd, chain = 'robinhood') {
+  if (!token || !(usd > 0) || usd > 100000) throw new Error('token and usd (0 < usd <= 100000) are required.');
+  const j = await fetch('https://api.dexscreener.com/latest/dex/tokens/' + token).then(r => r.json());
+  const pairs = (j.pairs || []).filter(p => p.chainId === chain && (p.baseToken.address || '').toLowerCase() === token.toLowerCase());
+  if (!pairs.length) throw new Error('No ' + chain + ' pool found for ' + token + '.');
+  const p = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0], price = Number(p.priceUsd), liq = p.liquidity?.usd || 0;
+  const amount = usd / price, sell = usd * 0.7, accepted = liq >= sell * 50;
+  return {token, chain, symbol: p.baseToken.symbol, usd, priceUsd: price, amount: Number(amount.toPrecision(8)), pool: p.pairAddress, poolLiquidityUsd: Math.round(liq),
+    accepted, why: accepted ? 'pool covers a 70% sale at under ~2% impact' : `pool ($${Math.round(liq)}) too thin for a $${sell.toFixed(2)} sale; pay in USDG or USDC`,
+    split: {keepPct: 30, convertPct: 70}, payTo: chain === 'robinhood' ? CAT1_WALLET : 'ask for the Cat holder wallet on ' + chain, quotedAt: new Date().toISOString(), validSeconds: 600};
+}
+
 // ERC-8004 agent card for JazzCat #1 as a seller: its paid endpoints and the wallet it is paid in.
 const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #1',
   description: 'JazzCat #1, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402. Credit-line read before a lender opens a line (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer. Paid in USDG straight into its own token-bound wallet.',
@@ -492,6 +507,7 @@ export default {
       try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
