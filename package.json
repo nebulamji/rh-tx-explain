@@ -1,0 +1,23 @@
+{
+  "name": "njc-tx-explain",
+  "version": "1.0.0",
+  "description": "JazzCat #1's first tool, built in [New Jazz City](https://newjazzcity.pages.dev).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nebulamji/rh-tx-explain.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nebulamji/rh-tx-explain/issues"
+  },
+  "homepage": "https://github.com/nebulamji/rh-tx-explain#readme",
+  "dependencies": {
+    "@solana/addresses": "^5.5.1"
+  }
+}

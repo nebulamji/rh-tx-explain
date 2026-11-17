@@ -1,4 +1,5 @@
 import {baseTrail} from './base.mjs';
+import {solTrail} from './sol.mjs';
 import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.json' with {type: 'json'};
 const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
@@ -204,6 +205,9 @@ const trailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_
 const baseTrailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_PRICE,
   description: "Base launch read for a recent coin (Clanker and others, up to ~7 days old): who launched it and through what, where the supply sits (burn, pool, wallets), who bought in the first blocks, flags. JazzCat #1, independent: read from Base.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/base-trail?token={token}', queryParams: {token: {type: 'string', description: 'ERC-20 address on Base'}}}, output: {type: 'object'}}});
+const solTrailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_PRICE,
+  description: "Solana coin trail: what the coin claims, mint and freeze authority, top holders outside pools, the creator's own holding, and where its creator fees route (pump.fun fee-sharing config and creator vaults, read on chain). JazzCat #1, independent.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/sol-trail?mint={mint}', queryParams: {mint: {type: 'string', description: 'Solana token mint'}}}, output: {type: 'object'}}});
 async function tokenLogs(token, latest) {
   // One window per request (the official RPC rate-limits batches by size); a window that fails or is too big splits in ten.
   const hx = x => '0x' + x.toString(16), out = [], todo = [];
@@ -521,6 +525,7 @@ const RAETO_TOOLS = {
   transfer_read: {price: 2, run: a => transferRead(a.contract)},
   money_trail: {price: 1, run: a => moneyTrail(a.token)},
   base_trail: {price: 1, run: a => baseTrail(a.token)},
+  sol_trail: {price: 1, run: a => solTrail(a.mint)},
   usdg_ledger: {price: 0.05, run: a => ledger(a.address, a.days)},
 };
 async function raetoTool(req, env, name, origin) {
@@ -579,6 +584,8 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {agentId: {type: 'string'}, vault: {type: 'string'}, wallet: {type: 'string'}}, required: ['agentId', 'vault', 'wallet']}},
   {name: 'transfer_read', route: 'transfer-read', price: '2', title: 'Transfer read before accepting an agent or contract', description: 'Paid, 2 USDG over x402: who owns a contract now, who is pending, when the transfer started, every ownership event, and whether the seller can still act before you accept. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {contract: {type: 'string', description: 'contract address 0x…'}}, required: ['contract']}},
+  {name: 'sol_trail', route: 'sol-trail', price: '1', title: 'Solana coin trail', description: 'Paid, 1 USDG over x402: for a Solana coin (pump.fun and others): its claim, authorities, holders outside pools, the creator holding, and where creator fees route (fee-sharing config + creator vaults). Returns the x402 payment link.',
+    inputSchema: {type: 'object', properties: {mint: {type: 'string', description: 'Solana token mint'}}, required: ['mint']}},
   {name: 'base_trail', route: 'base-trail', price: '1', title: 'Base launch read', description: 'Paid, 1 USDG over x402: for a recent coin on Base (Clanker and others): who launched it, where the supply sits (burn, pool, wallets), first-block buyers, flags. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'ERC-20 address on Base'}}, required: ['token']}},
   {name: 'halt_check', route: 'halt-check', price: '0.25', title: 'Is a Stock Token\'s stock halted? (exchange lists, not the issuer feed)', description: 'Paid, 0.25 USDG over x402: the exchanges\' own halt lists (NYSE + Nasdaq) for a ticker, reason, since and resumption, next to the issuer-relayed oracle row, with whether they agree. Returns the x402 payment link.',
@@ -625,11 +632,12 @@ export default {
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
-      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
+      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/sol-trail?mint={mint}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
         accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
       quote: url.origin + '/quote?token={token}&usd={usd}&chain=robinhood'});
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/base-trail' && req.method === 'GET') return paid(req, url, () => baseTrail(url.searchParams.get('token')), baseTrailReq);
+    if (url.pathname === '/x402/sol-trail' && req.method === 'GET') return paid(req, url, () => solTrail(url.searchParams.get('mint')), solTrailReq);
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
     if (url.pathname === '/desk/bank-of-me' && req.method === 'GET') { count(env, ctx, 'desk:bank-of-me'); try { return await bankOfMeDesk(); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/desk/submission-office' && req.method === 'GET') { count(env, ctx, 'desk:submission-office'); try { return await submissionOfficeDesk(); } catch (e) { return json({error: e.message}, 502); } }
