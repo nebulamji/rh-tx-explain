@@ -343,6 +343,25 @@ function coinHeadline(r) {
     launcherPct: launcher ? launcher.pctOfSupply : 0, topWallet: topWallet ? {address: topWallet.address, pct: topWallet.pctOfSupply} : null,
     pool: r.topHolders.filter(h => h.kind === 'pool').reduce((s, h) => s + h.pctOfSupply, 0), flags: r.flags, transfers: r.transfers, launch: r.launch};
 }
+// The Book: New Jazz City's paid jobs, read from the ReceiptBook contract on Robinhood Chain (one row per payment, in order).
+const BOOK = '0x1fa93616bf71263559faf09ced9ba77574555213', BOOK_FROM = 116385133, RECORDED = '0xbb9cdf5ef8abf299ead3bf12616f79df4289c01d584304606963869555ea20cf';
+async function bookRows() {
+  const [logs] = await rpcBatch([['eth_getLogs', [{address: BOOK, fromBlock: '0x' + BOOK_FROM.toString(16), toBlock: 'latest', topics: [RECORDED]}]]], OFFICIAL);
+  return (logs || []).map(l => {
+    const d = l.data.slice(2), w = i => d.slice(i * 64, i * 64 + 64), off = parseInt(w(4), 16) * 2, len = parseInt(d.slice(off, off + 64), 16) * 2;
+    return {seq: parseInt(l.topics[1], 16), buyer: '0x' + l.topics[2].slice(26), token: '0x' + l.topics[3].slice(26), amount: Number(BigInt('0x' + w(0))) / 1e6,
+      chainId: Number(BigInt('0x' + w(1))), payTx: '0x' + w(2), workHash: '0x' + w(3), label: utf8(d.slice(off + 64, off + 64 + len)), recordTx: l.transactionHash};
+  }).sort((a, b) => a.seq - b.seq);
+}
+async function bookPage(url) {
+  const rows = await bookRows(), total = rows.reduce((a, r) => a + r.amount, 0), buyers = new Set(rows.map(r => r.buyer)).size;
+  if (url.pathname === '/book.json') return json({book: BOOK, chainId: CHAIN_ID, receipts: rows.length, total, buyers, rows});
+  const tr = rows.map(r => `<tr><td>${r.seq}</td><td>${esc(r.label)}</td><td>${esc(r.amount)} USDG</td><td><a href="${EXPLORER}/address/${r.buyer}">${short(r.buyer)}</a></td><td><a href="${EXPLORER}/tx/${r.payTx}">payment</a></td><td><a href="${EXPLORER}/tx/${r.recordTx}">receipt</a></td></tr>`).join('');
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Book · New Jazz City</title>
+<style>:root{--bg:#0b0b10;--fg:#e9e6ff;--mute:#9a95b8;--line:#2a2840;--acc:#6ee7ff}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:900px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}p{color:var(--mute);margin:4px 0 16px}table{width:100%;border-collapse:collapse}td,th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mute);font-weight:500}a{color:var(--acc)}.wrap{overflow-x:auto}</style></head>
+<body><main><h1>The Book</h1><p>Every paid job New Jazz City's Cats have done, in order, written on Robinhood Chain by the house. ${rows.length} receipts · ${esc(Math.round(total * 100) / 100)} USDG · ${buyers} buyers. Book contract <a href="${EXPLORER}/address/${BOOK}">${short(BOOK)}</a>; every row links its payment.</p>
+<div class="wrap"><table><thead><tr><th>#</th><th>Job</th><th>Paid</th><th>Buyer</th><th></th><th></th></tr></thead><tbody>${tr}</tbody></table></div></main></body></html>`, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300'}});
+}
 async function coinPage(url, env, ctx) {
   const token = (url.searchParams.get('token') || '').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(token)) return new Response('token=0x… required', {status: 400});
@@ -425,6 +444,7 @@ export default {
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
+    if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
     if (url.pathname === '/control' && req.method === 'GET') {
