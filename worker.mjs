@@ -2,7 +2,7 @@ import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.js
 const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
 // Read-only. No keys, no model calls: every sentence is built from the chain's own transaction, receipt and logs.
-// MCP (streamable HTTP, JSON-RPC) at POST /mcp with one tool, explain_transaction. Humans: GET /?tx=0x...
+// MCP (streamable HTTP, JSON-RPC) at POST /mcp: explain_transaction and who_controls_agent (free), money_trail, line_read, usdg_ledger (x402 links). /mcp?cat=N sells as JazzCat #N. Humans: GET /?tx=0x...
 const LOG_RPCS = ['https://4663.rpc.thirdweb.com', 'https://njc-read-proxy.vercel.app/api/rpc']; // the two that serve wide filtered log ranges
 const OFFICIAL = [globalThis.NJC_LOCAL ? 'https://rpc.mainnet.chain.robinhood.com' : 'https://njc-read-proxy.vercel.app/api/rpc']; // the official RPC (10M-block log windows) through a read-only proxy: it rate-limits Cloudflare's egress
 const RPCS = ['https://robinhood-rpc.publicnode.com', 'https://robinhood.drpc.org', 'https://4663.rpc.thirdweb.com', 'https://rpc.mainnet.chain.robinhood.com'], EXPLORER = 'https://robinhoodchain.blockscout.com', CHAIN_ID = 4663;
@@ -261,6 +261,27 @@ const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v
   registrations: [{agentId: 26063, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'}, {agentId: 26026, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', note: 'first registration, held by Adapter; no agent wallet'}],
   agentWallet: 'eip155:4663:' + '0x1479bE07E26976Fd712db34f7Bc1B8Ac523f806e'};
 
+// Every Cat sells: ?cat=N on a paid route (or /mcp?cat=N) is paid to JazzCat #N's own ERC-6551 wallet (registry account(), AccountV3, salt 0).
+// No cat, or cat=1, is the original path: JazzCat #1, 0x1479…806e, agent #26063.
+const GENESIS = '0xB3D33Af2cE8cE0792942B487E2213ac665DD83E2', REG6551 = '0x000000006551c19487814612e58FE06813775758', ACCOUNT_V3 = '0x41C8f39463A868d3A88af00cd0fe7102F30E44eC';
+const catWallets = new Map([['1', CAT1_WALLET]]);
+async function catWallet(n) {
+  if (!/^[1-9]\d{0,5}$/.test(n || '')) throw new Error('cat must be a JazzCat token id');
+  if (catWallets.has(n)) return catWallets.get(n);
+  const id = BigInt(n).toString(16).padStart(64, '0'), w = a => a.toLowerCase().slice(2).padStart(64, '0');
+  const [owner, acct] = await rpcBatch([['eth_call', [{to: GENESIS, data: '0x6352211e' + id}, 'latest']],
+    ['eth_call', [{to: REG6551, data: '0x246a0021' + w(ACCOUNT_V3) + '0'.repeat(64) + CHAIN_ID.toString(16).padStart(64, '0') + w(GENESIS) + id}, 'latest']]]);
+  if (!owner || owner === '0x' || !acct) throw new Error('No JazzCat #' + n + ' on Robinhood Chain.');
+  const wallet = '0x' + acct.slice(26); catWallets.set(n, wallet); return wallet;
+}
+const catCard = (n, wallet, origin) => ({type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #' + n,
+  description: `JazzCat #${n}, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402, paid in USDG to its own wallet. Credit-line read (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer and agent-control check.`,
+  image: `https://jazzcatsfun.pages.dev/agents/${n}.svg`,
+  services: [...['line-read', 'money-trail', 'ledger'].map(r => ({name: 'x402', endpoint: `${origin}/x402/${r}?cat=${n}`, version: '1'})),
+    {name: 'MCP', endpoint: `${origin}/mcp?cat=${n}`, version: '2025-06-18'}, {name: 'web', endpoint: origin + '/'}],
+  x402Support: true, active: true, supportedTrust: ['reputation'], agentWallet: 'eip155:4663:' + wallet,
+  token: {chainId: 4663, contract: GENESIS, tokenId: n, account: 'ERC-6551 AccountV3, owned by whoever holds the Cat'}});
+
 // ---- Free: who controls an ERC-8004 agent now, and since when (for registries and listing pages) ----
 export async function control(agentId) {
   if (!/^\d+$/.test(agentId || '')) throw new Error('agentId (ERC-8004 id on Robinhood Chain) is required.');
@@ -341,7 +362,10 @@ const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
 const H402 = {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE, PAYMENT-RESPONSE, PAYMENT-REQUIRED'};
 async function paid(req, url, work, reqOf = ledgerReq) {
-  const requirement = reqOf(url.origin + url.pathname + url.search), req2 = v2Of(requirement), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
+  const cat = url.searchParams.get('cat'), seller = cat && cat !== '1' ? await catWallet(cat).catch(() => null) : null;
+  if (cat && cat !== '1' && !seller) return json({error: 'No JazzCat #' + cat + ' on Robinhood Chain.'}, 404);
+  const base = reqOf(url.origin + url.pathname + url.search), requirement = seller ? {...base, payTo: seller, extra: {name: base.extra.name, version: base.extra.version}} : base;
+  const req2 = v2Of(requirement), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
   const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, accepts: [requirement, {...requirement, network: 'eip155:' + CHAIN_ID}]}), {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: requirement.resource, description: requirement.description, mimeType: 'application/json'}, accepts: [req2]})}});
   if (!header) return offer('Payment required');
   let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return offer('Bad payment header'); }
@@ -352,11 +376,21 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   let result; try { result = await work(); } catch (e) { return json({error: e.message}, 400); } // a failed read is never charged
   const st = await fetch(FACILITATOR + '/settle', {method: 'POST', headers: {'content-type': 'application/json'}, body}).then(r => r.json()).catch(e => ({success: false, errorReason: e.message}));
   if (!st.success) return offer(st.errorReason || 'Settlement failed');
-  return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: CAT1_WALLET}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
+  return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: requirement.payTo}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
 }
 const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain transaction',
   description: 'Takes a Robinhood Chain (chain 4663) transaction hash and returns a short plain-language summary of what happened: swaps, token and NFT transfers, mints, burns, approvals (flags unlimited ones), contract deployments, failures and the fee. Read-only; built from the chain\'s own data, no model in the loop.',
   inputSchema: {type: 'object', properties: {hash: {type: 'string', description: '0x-prefixed transaction hash'}}, required: ['hash']}};
+const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-8004 agent',
+  description: 'Free. For an ERC-8004 agent id on Robinhood Chain: who holds it, its agent wallet, whether they match, and its registration URI. Read from the chain.',
+  inputSchema: {type: 'object', properties: {agentId: {type: 'string', description: 'ERC-8004 agent id'}}, required: ['agentId']}};
+const PAID_TOOLS = [
+  {name: 'money_trail', route: 'money-trail', price: '1', title: 'Money trail for a Robinhood Chain coin', description: 'Paid, 1 USDG over x402: who launched a coin and through what, where the supply went, launch-block buyers, top holders. Returns the x402 payment link; call it with payment for the read.',
+    inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'coin contract 0x…'}}, required: ['token']}},
+  {name: 'line_read', route: 'line-read', price: '1', title: 'Credit-line read for an agent', description: 'Paid, 1 USDG over x402: before a lender opens a line, who holds the ERC-8004 agent and since when, its wallet, USDG history and the vault line. Returns the x402 payment link.',
+    inputSchema: {type: 'object', properties: {agentId: {type: 'string'}, vault: {type: 'string'}, wallet: {type: 'string'}}, required: ['agentId', 'vault', 'wallet']}},
+  {name: 'usdg_ledger', route: 'ledger', price: '0.05', title: 'USDG ledger for an address', description: 'Paid, 0.05 USDG over x402: every USDG in and out of an address over N days (max 14), reconciled against the on-chain balance. Returns the x402 payment link.',
+    inputSchema: {type: 'object', properties: {address: {type: 'string'}, days: {type: 'number'}}, required: ['address']}}];
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
 
 export default {
@@ -376,6 +410,7 @@ export default {
     if (url.pathname === '/mcp' && req.method === 'POST') count(env, ctx, 'mcp');
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
+    { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
     if (url.pathname === '/control' && req.method === 'GET') {
@@ -389,12 +424,24 @@ export default {
     const m = await req.json().catch(() => null); if (!m) return json({jsonrpc: '2.0', id: null, error: {code: -32700, message: 'Parse error'}}, 400);
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
-    if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.1.1'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL]});
+    if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, ...PAID_TOOLS]});
     if (m.method === 'ping') return ok({});
     if (m.method === 'tools/call' && m.params?.name === TOOL.name) {
       try { const r = await explain(m.params.arguments?.hash); return ok({content: [{type: 'text', text: r.summary + `\n${r.link}`}], structuredContent: r}); }
       catch (e) { return ok({content: [{type: 'text', text: e.message}], isError: true}); }
+    }
+    if (m.method === 'tools/call' && m.params?.name === CONTROL_TOOL.name) {
+      try { const r = await control(String(m.params.arguments?.agentId ?? '')); return ok({content: [{type: 'text', text: JSON.stringify(r)}], structuredContent: r}); }
+      catch (e) { return ok({content: [{type: 'text', text: e.message}], isError: true}); }
+    }
+    const pt = m.method === 'tools/call' && PAID_TOOLS.find(t => t.name === m.params?.name);
+    if (pt) {
+      const cat = url.searchParams.get('cat') || '1'; let payTo;
+      try { payTo = await catWallet(cat); } catch (e) { return ok({content: [{type: 'text', text: e.message}], isError: true}); }
+      const q = new URLSearchParams(Object.entries(m.params.arguments || {}).map(([k, v]) => [k, String(v)])); if (cat !== '1') q.set('cat', cat);
+      const pay = {url: `${url.origin}/x402/${pt.route}?${q}`, price: pt.price + ' USDG', payTo, rail: 'x402 on Robinhood Chain (v1 network "robinhood", v2 "eip155:4663"), settled by x402.t0ll.xyz', seller: 'JazzCat #' + cat};
+      return ok({content: [{type: 'text', text: `Paid read, ${pay.price} to JazzCat #${cat}'s wallet ${payTo}. GET ${pay.url} and answer the 402 with an X-PAYMENT header. A failed read is never charged.`}], structuredContent: {paymentRequired: pay}});
     }
     return json({jsonrpc: '2.0', id: m.id, error: {code: -32601, message: 'Method not found'}});
   },
