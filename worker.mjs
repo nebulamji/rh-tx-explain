@@ -626,6 +626,17 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {account: {type: 'string', description: '6551 wallet 0x…'}, chain: {type: 'string', description: 'base or robinhood'}}, required: ['account']}},
   {name: 'poison_check', route: 'poison-check', price: '1', title: 'Poison check before paying an address copied from a wallet history', description: 'Paid, 1 USDG over x402: look-alike tokens and look-alike counterparties (same first and last characters, different middle) in a wallet history on Robinhood Chain, with the real address.',
     inputSchema: {type: 'object', properties: {address: {type: 'string', description: 'wallet whose history you copy payees from, 0x…'}}, required: ['address']}}];
+// route -> [read from the query, its x402 requirement], shared by the HTTP routes' logic and MCP in-band payment
+const PAID_RUN = {
+  'money-trail': [q => TRAILS[(q.get('token') || '').toLowerCase()] ?? moneyTrail(q.get('token')), r => trailReq(r)],
+  'line-read': [q => lineRead(q.get('agentId'), q.get('vault'), q.get('wallet')), r => lineReq(r)],
+  'transfer-read': [q => transferRead(q.get('contract')), r => transferReq(r)],
+  'sol-trail': [q => solTrail(q.get('mint')), r => solTrailReq(r)],
+  'base-trail': [q => baseTrail(q.get('token')), r => baseTrailReq(r)],
+  'halt-check': [q => haltCheck(q.get('symbol')), r => haltReq(r)],
+  'ledger': [q => ledger(q.get('address'), q.get('days')), r => ledgerReq(r)],
+  'tba-read': [q => tbaRead(q.get('account'), q.get('chain')), r => tbaReq(r)],
+  'poison-check': [q => poisonCheck(q.get('address')), r => poisonReq(r)]};
 // What an outside agent needs to find, price and pay a read: the menu, never the method.
 const qs = t => Object.keys(t.inputSchema.properties).map(k => `${k}={${k}}`).join('&');
 // Buy on the spot: any wallet (an agent's browser or a person's) picks a read, signs one USDG authorization, and gets the
@@ -771,7 +782,17 @@ export default {
       try { payTo = await catWallet(cat); } catch (e) { return ok({content: [{type: 'text', text: e.message}], isError: true}); }
       const q = new URLSearchParams(Object.entries(m.params.arguments || {}).map(([k, v]) => [k, String(v)])); if (cat !== '1') q.set('cat', cat);
       const pay = {url: `${url.origin}/x402/${pt.route}?${q}`, price: pt.price + ' USDG', payTo, rail: 'x402: USDG on Robinhood Chain ("robinhood" / eip155:4663, settled by facilitator.priors.trade, x402.t0ll.xyz as fallback) or USDC on Base ("base" / eip155:8453, paid to the Cat holder, settled by facilitator.payai.network)', seller: 'JazzCat #' + cat};
-      return ok({content: [{type: 'text', text: `Paid read, ${pay.price} to JazzCat #${cat}'s wallet ${payTo}. GET ${pay.url} and answer the 402 with an X-PAYMENT header. A failed read is never charged.`}], structuredContent: {paymentRequired: pay}});
+      // x402 in-band over MCP: a client with a wallet sends the signed payment in _meta and gets the read in the same call
+      const run = PAID_RUN[pt.route], payment = m.params._meta?.['x402/payment'];
+      if (payment && run) {
+        const hdr = typeof payment === 'string' ? payment : b64(payment), u = new URL(pay.url);
+        const r = await paid(new Request(pay.url, {headers: {'x-payment': hdr}}), u, () => run[0](u.searchParams), run[1]);
+        const j = await r.json().catch(() => ({error: 'bad answer'}));
+        return ok({content: [{type: 'text', text: JSON.stringify(j)}], structuredContent: j, isError: r.status !== 200, _meta: r.status === 200 ? {'x402/payment-response': j.payment || null} : {'x402/payment-required': {x402Version: 1, error: j.error, accepts: j.accepts}}});
+      }
+      const accepts = run ? [run[1](pay.url)] : [];
+      return ok({content: [{type: 'text', text: `Paid read, ${pay.price} to JazzCat #${cat}'s wallet ${payTo}. Pay in this call: send the x402 payment (base64 X-PAYMENT payload, or the object) in _meta["x402/payment"] and call again. Or GET ${pay.url} and answer the 402. A failed read is never charged.`}],
+        structuredContent: {paymentRequired: pay, accepts}, _meta: {'x402/payment-required': {x402Version: 1, accepts}}});
     }
     return json({jsonrpc: '2.0', id: m.id, error: {code: -32601, message: 'Method not found'}});
   },
