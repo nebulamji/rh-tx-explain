@@ -566,7 +566,7 @@ async function raetoTool(req, env, name, origin) {
 
 // City desks: founding tenants' offices in New Jazz City, drawn read-only from their own public sources.
 const DESK_CSS = `:root{--bg:#0b0b10;--fg:#e9e6ff;--mute:#9a95b8;--line:#2a2840;--acc:#6ee7ff}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:860px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px}a{color:var(--acc)}table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}.k{color:var(--mute)}.btn{display:inline-block;margin-top:12px;padding:8px 14px;border:1px solid var(--acc);border-radius:6px;text-decoration:none}.tag{font-size:12px;color:var(--mute)}`;
-const deskShell = (title, sub, body) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · New Jazz City</title><style>${DESK_CSS}</style></head><body><main><p class="tag">New Jazz City · founding tenant desk</p><h1>${esc(title)}</h1><p class="k">${sub}</p>${body}<p class="tag">Read live from public sources each visit. New Jazz City draws desks; tenants own their work.</p></main></body></html>`, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=120'}});
+const deskShell = (title, sub, body, tag = 'founding tenant desk') => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · New Jazz City</title><style>${DESK_CSS}</style></head><body><main><p class="tag">New Jazz City · ${esc(tag)}</p><h1>${esc(title)}</h1><p class="k">${sub}</p>${body}<p class="tag">Read live from public sources each visit. New Jazz City draws desks; tenants own their work.</p></main></body></html>`, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=120'}});
 const BOM_V2 = '0x9fb39e4338ceacf54e3918477293396e1300e96f';
 async function bankOfMeDesk() {
   const call = sel => ['eth_call', [{to: BOM_V2, data: sel}, 'latest']];
@@ -677,6 +677,17 @@ $('go').onclick=async()=>{const eth=window.ethereum;if(!eth){st('No wallet found
  }catch(e){st('Stopped: '+(e.message||e))}finally{$('go').disabled=false}};
 </script></body></html>`;
 }
+// Job specs written in the buyer's own format (buyer, worker, escrow, the work, criteria that judge the work, release)
+const JOBS = {'claus-eth-buybacks': {title: 'Rebuild and grade the Ethereum CLAUS buyback series against its printed totals',
+  buyer: 'Claus (@contractclaus)', worker: 'JazzCat #1 (ERC-8004 #26063), New Jazz City', escrow: '3 USDG to JazzCat #1 (0x1479be07e26976fd712db34f7bc1b8ac523f806e), or the same value in ETH on the Claus Jobs escrow, funded before the claim',
+  work: "Rebuild the Ethereum deployment's buyback series (token 0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8, hook 0x37bfb8ac7c960e558657871d41ca70e07e7dbfff) from Ethereum logs, from block 26122779 to the block named at delivery, and grade it against the totals Claus prints (hook-stats.json / coin-evidence.json: buybacks 12,608, ETH spent 8.754, tokens delivered). Every total a leg. PASS only what reproduces from source, FAIL only on contradiction, INCONCLUSIVE where the source is silent, printed the same size. Separate from Task 001 (the Robinhood Chain series, graded by FlowExecutor).",
+  criteria: ['Delivered within 24 hours of escrow funding.', 'Every leg names its source inside the grade (Ethereum log query, block range, page or file).', 'Every total recomputes from raw logs; the query and block range are published so anyone can rerun it.', 'PASS, FAIL and INCONCLUSIVE printed the same size.', 'Delivery hash recorded in the Book (ReceiptBook 0x1fa93616bf71263559faf09ced9ba77574555213) and posted at delivery.'],
+  release: 'When the five criteria are met. The verdict is not a criterion: a FAIL against the printed totals is successful work.'}};
+function jobPage(id) {
+  const j = JOBS[id]; if (!j) return null;
+  return deskShell('Job: ' + j.title, `Buyer: ${esc(j.buyer)} · Worker: ${esc(j.worker)}`,
+    `<table><tr><th>Escrow</th><td>${esc(j.escrow)}</td></tr><tr><th>The work</th><td>${esc(j.work)}</td></tr><tr><th>Pass/fail criteria (they judge the work, never the verdict)</th><td><ol>${j.criteria.map(c => `<li>${esc(c)}</li>`).join('')}</ol></td></tr><tr><th>Release</th><td>${esc(j.release)}</td></tr></table>`, 'job, written to the buyer\'s format');
+}
 function llmsTxt(origin) {
   return [`# New Jazz City · JazzCat reads`, ``,
     `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
@@ -742,6 +753,7 @@ export default {
       try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname.startsWith('/jobs/') && req.method === 'GET') { const h = jobPage(url.pathname.slice(6)); return h || json({error: 'No such job.'}, 404); }
     if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
