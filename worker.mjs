@@ -247,6 +247,27 @@ export async function moneyTrail(token) {
     verdict: flags.length ? 'read the flags' : 'no flags', by: 'JazzCat #1 (agent #26063), independent: read from the chain'};
 }
 
+// Paid: transfer read. Right before a buyer accepts a two-step ownership transfer (Ownable2Step and similar), who can still act:
+// current owner, pending owner, when the transfer started, and every ownership event since. 2 USDG to the Cat.
+const TRANSFER_PRICE = '2000000', OT_STARTED = '0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700', OT_DONE = '0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0';
+const transferReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRANSFER_PRICE,
+  description: "Transfer read before you accept an agent or contract: current owner, pending owner, when the transfer started, every ownership event, and whether the seller can still act. Read from the chain by JazzCat #1.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/transfer-read?contract={contract}', queryParams: {contract: {type: 'string', description: 'contract address 0x…'}}}}});
+export async function transferRead(contract) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(contract || '')) throw new Error('contract (0x address) is required.');
+  const c = contract.toLowerCase();
+  const [owner, pending, head, code] = await rpcBatch([['eth_call', [{to: c, data: '0x8da5cb5b'}, 'latest']], ['eth_call', [{to: c, data: '0xe30c3978'}, 'latest']], ['eth_blockNumber', []], ['eth_getCode', [c, 'latest']]], OFFICIAL);
+  if (!code || code === '0x') throw new Error('No contract at ' + contract + ' on Robinhood Chain.');
+  const latest = BigInt(head), from = latest > 9000000n ? latest - 9000000n : 0n;
+  const [logs] = await rpcBatch([['eth_getLogs', [{address: c, fromBlock: '0x' + from.toString(16), toBlock: 'latest', topics: [[OT_STARTED, OT_DONE]]}]]], OFFICIAL);
+  const ev = (logs || []).map(l => ({event: l.topics[0] === OT_STARTED ? 'OwnershipTransferStarted' : 'OwnershipTransferred', from: addr(l.topics[1]), to: addr(l.topics[2]), block: Number(BigInt(l.blockNumber)), tx: l.transactionHash}));
+  const o = owner && owner.length >= 66 ? addr(owner) : null, p = pending && pending.length >= 66 ? addr(pending) : null, open = p && p !== ZERO_A;
+  const started = [...ev].reverse().find(e => e.event === 'OwnershipTransferStarted' && e.to === p);
+  return {contract: c, chainId: CHAIN_ID, owner: o, pendingOwner: open ? p : null, transferOpen: !!open, startedAt: started ? {block: started.block, tx: started.tx} : null, events: ev,
+    verdict: open ? `transfer open: ${short(o)} still owns and can still act (change roles or cancel) until ${short(p)} accepts` : o ? `no transfer open; ${short(o)} owns it` : 'no owner() on this contract',
+    note: 'Owner and pending owner are read now; events cover about the last 11 days. Roles specific to the contract (guardians, executors) are read on request.', by: 'JazzCat #1 (agent #26063), read from the chain'};
+}
+
 // ERC-8004 agent card for JazzCat #1 as a seller: its paid endpoints and the wallet it is paid in.
 const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #1',
   description: 'JazzCat #1, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402. Credit-line read before a lender opens a line (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer. Paid in USDG straight into its own token-bound wallet.',
@@ -287,7 +308,7 @@ async function catWallet(n) {
 const catCard = (n, wallet, origin) => ({type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #' + n,
   description: `JazzCat #${n}, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402, paid in USDG to its own wallet. Credit-line read (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer and agent-control check.`,
   image: `https://jazzcatsfun.pages.dev/agents/${n}.svg`,
-  services: [...['line-read', 'money-trail', 'ledger'].map(r => ({name: 'x402', endpoint: `${origin}/x402/${r}?cat=${n}`, version: '1'})),
+  services: [...['line-read', 'money-trail', 'ledger', 'transfer-read'].map(r => ({name: 'x402', endpoint: `${origin}/x402/${r}?cat=${n}`, version: '1'})),
     {name: 'MCP', endpoint: `${origin}/mcp?cat=${n}`, version: '2025-06-18'}, {name: 'web', endpoint: origin + '/'}],
   x402Support: true, active: true, supportedTrust: ['reputation'], agentWallet: 'eip155:4663:' + wallet,
   token: {chainId: 4663, contract: GENESIS, tokenId: n, account: 'ERC-6551 AccountV3, owned by whoever holds the Cat'}});
@@ -362,6 +383,21 @@ async function bookPage(url) {
 <body><main><h1>The Book</h1><p>Every paid job New Jazz City's Cats have done, in order, written on Robinhood Chain by the house. ${rows.length} receipts · ${esc(Math.round(total * 100) / 100)} USDG · ${buyers} buyers. Book contract <a href="${EXPLORER}/address/${BOOK}">${short(BOOK)}</a>; every row links its payment.</p>
 <div class="wrap"><table><thead><tr><th>#</th><th>Job</th><th>Paid</th><th>Buyer</th><th></th><th></th></tr></thead><tbody>${tr}</tbody></table></div></main></body></html>`, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300'}});
 }
+// A Cat's own page: its wallet, its holder, what it sells and its paid jobs from the Book.
+// Rows written before per-Cat sellers existed were all Cat #1's; later rows name their Cat in the label ("Cat #N · …").
+async function catPage(n, url) {
+  const wallet = await catWallet(n), holder = await catHolderEOA(n).catch(() => null);
+  const [bal] = await rpcBatch([['eth_call', [{to: USDG, data: '0x70a08231' + wallet.slice(2).padStart(64, '0')}, 'latest']]]);
+  const rows = (await bookRows()).filter(r => n === '1' ? !/^Cat #\d+ ·/.test(r.label) || r.label.startsWith('Cat #1 ·') : r.label.startsWith(`Cat #${n} ·`));
+  const earned = rows.reduce((a, r) => a + r.amount, 0), o = url.origin;
+  const tr = rows.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.amount)} USDG</td><td><a href="${EXPLORER}/tx/${r.payTx}">payment</a></td></tr>`).join('') || '<tr><td colspan="3">No paid jobs yet.</td></tr>';
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JazzCat #${esc(n)} · New Jazz City</title>
+<style>:root{--bg:#0b0b10;--fg:#e9e6ff;--mute:#9a95b8;--line:#2a2840;--acc:#6ee7ff}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:820px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px}p,li{color:var(--mute)}table{width:100%;border-collapse:collapse}td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}a{color:var(--acc)}img{width:120px;height:120px;border-radius:12px;background:#15131f}</style></head>
+<body><main><img src="https://jazzcatsfun.pages.dev/agents/${esc(n)}.svg" alt="JazzCat #${esc(n)}"><h1>JazzCat #${esc(n)}</h1>
+<p>An on-chain jazz cat in New Jazz City, Robinhood Chain. Its own wallet <a href="${EXPLORER}/address/${wallet}">${short(wallet)}</a> holds ${esc(Number(BigInt(bal || '0x0')) / 1e6)} USDG${holder ? `; held by <a href="${EXPLORER}/address/${holder}">${short(holder)}</a>` : ''}. Paid jobs: ${rows.length}, ${esc(Math.round(earned * 100) / 100)} USDG.</p>
+<h2>What it sells</h2><ul><li>Money trail for any coin, 1 USDG</li><li>Credit-line read before a lender opens a line, 1 USDG</li><li>USDG ledger for any address, 0.05 USDG</li><li>Batches: 10 for 8, 50 for 35, 100 for 70</li><li>Paid in USDG on Robinhood Chain or USDC on Base, over x402. Agent card: <a href="${o}/agents/cat/${esc(n)}">/agents/cat/${esc(n)}</a></li></ul>
+<h2>Paid jobs</h2><table>${tr}</table><p><a href="${o}/book">The Book</a>: every Cat's receipts, written on chain.</p></main></body></html>`, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300'}});
+}
 async function coinPage(url, env, ctx) {
   const token = (url.searchParams.get('token') || '').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(token)) return new Response('token=0x… required', {status: 400});
@@ -422,6 +458,8 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'coin contract 0x…'}}, required: ['token']}},
   {name: 'line_read', route: 'line-read', price: '1', title: 'Credit-line read for an agent', description: 'Paid, 1 USDG over x402: before a lender opens a line, who holds the ERC-8004 agent and since when, its wallet, USDG history and the vault line. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {agentId: {type: 'string'}, vault: {type: 'string'}, wallet: {type: 'string'}}, required: ['agentId', 'vault', 'wallet']}},
+  {name: 'transfer_read', route: 'transfer-read', price: '2', title: 'Transfer read before accepting an agent or contract', description: 'Paid, 2 USDG over x402: who owns a contract now, who is pending, when the transfer started, every ownership event, and whether the seller can still act before you accept. Returns the x402 payment link.',
+    inputSchema: {type: 'object', properties: {contract: {type: 'string', description: 'contract address 0x…'}}, required: ['contract']}},
   {name: 'usdg_ledger', route: 'ledger', price: '0.05', title: 'USDG ledger for an address', description: 'Paid, 0.05 USDG over x402: every USDG in and out of an address over N days (max 14), reconciled against the on-chain balance. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {address: {type: 'string'}, days: {type: 'number'}}, required: ['address']}}];
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
@@ -444,6 +482,7 @@ export default {
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
+    { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
     if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
@@ -453,6 +492,7 @@ export default {
       try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
     const m = await req.json().catch(() => null); if (!m) return json({jsonrpc: '2.0', id: null, error: {code: -32700, message: 'Parse error'}}, 400);
