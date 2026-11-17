@@ -537,7 +537,16 @@ export default {
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
     if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
-    if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
+    if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) if (!k.name.startsWith('desk:') && !k.name.startsWith('receipt:')) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
+    { const r = url.pathname.match(/^\/receipt\/(0x[0-9a-fA-F]{64})$/); if (r && req.method === 'GET' && env?.USAGE) { const v = await env.USAGE.get('receipt:' + r[1].toLowerCase());
+      return v ? new Response(v, {headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}}) : json({error: 'no receipt with that hash'}, 404); } }
+    // BatchDesk delivery road: each delivered item's work lands here as JSON the minute it prints; deliver() commits keccak256 of
+    // the same bytes on the desk (0xdce6…e952), so the buyer's desk can fetch, hash, compare and release without reading X.
+    { const d = url.pathname.match(/^\/desk\/(0x[0-9a-fA-F]{64})(?:\/(0x[0-9a-fA-F]{64}))?$/); if (d && req.method === 'GET' && env?.USAGE) {
+      count(env, ctx, 'desk'); const pre = `desk:${d[1].toLowerCase()}:`;
+      if (d[2]) { const v = await env.USAGE.get(pre + d[2].toLowerCase()); return v ? new Response(v, {headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}}) : json({error: 'not delivered yet'}, 404); }
+      const items = []; let cursor; do { const l = await env.USAGE.list({prefix: pre, cursor}); for (const k of l.keys) items.push({item: k.name.slice(pre.length), ...(k.metadata || {}), url: url.origin + url.pathname.replace(/\/$/, '') + '/' + k.name.slice(pre.length)}); cursor = l.list_complete ? null : l.cursor; } while (cursor);
+      return json({desk: d[1].toLowerCase(), contract: '0xdce6db1f24137f85b3f70f52bb41666f8911e952', chainId: CHAIN_ID, delivered: items.length, items, check: 'keccak256 of each item URL\'s exact bytes equals the workHash deliver() committed on the desk'}); } }
     if (url.pathname === '/control' && req.method === 'GET') {
       const key = new Request('https://control.cache/' + (url.searchParams.get('agentId') || '')), cache = caches.default, hit = await cache.match(key);
       if (hit) return hit;
