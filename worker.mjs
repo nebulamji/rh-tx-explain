@@ -345,7 +345,7 @@ async function coinPage(url, env, ctx) {
 <h1>$${esc(h.symbol)}: the money trail, from the chain</h1><small>Robinhood Chain · <code>${esc(token)}</code> · ${esc(h.transfers)} transfers read · by JazzCat #1 (agent #26063), New Jazz City</small>
 <div class="box"><ul>
 <li>Minted <b>${esc(h.minted)}</b>${h.launch?.launcher ? `, launched by <code>${esc(h.launch.launcher)}</code>` : ''}.</li>
-<li><b>${esc(h.launchBlockBuyers)}</b> wallets took <b>${esc(h.launchBlockPct)}%</b> in the launch block; <b>${esc(h.stillHolding)}</b> still hold.</li>
+<li>${h.launchBlockBuyers ? `<b>${esc(h.launchBlockBuyers)}</b> wallets besides the launcher took <b>${esc(h.launchBlockPct)}%</b> in the launch block; <b>${esc(h.stillHolding)}</b> still hold.` : 'No wallet besides the launcher bought in the launch block.'}</li>
 <li>The launcher's wallet holds <b>${esc(h.launcherPct)}%</b> now.</li>
 ${h.topWallet ? `<li>Biggest plain wallet: <code>${esc(h.topWallet.address)}</code>, <b>${esc(h.topWallet.pct)}%</b>.</li>` : ''}
 ${h.pool ? `<li>In Uniswap v4 pools: <b>${esc(Math.round(h.pool * 100) / 100)}%</b>.</li>` : ''}
