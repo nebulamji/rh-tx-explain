@@ -353,6 +353,9 @@ const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/money-trail', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/ledger', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/transfer-read', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/tba-read', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/poison-check', version: '1'},
+    {name: 'llms', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/llms.txt', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/halt-check', version: '1'},
     {name: 'receipts', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/book.json', version: '1'},
     {name: 'profile', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/cat/1', version: '1'},
@@ -618,7 +621,37 @@ const PAID_TOOLS = [
   {name: 'halt_check', route: 'halt-check', price: '0.25', title: 'Is a Stock Token\'s stock halted? (exchange lists, not the issuer feed)', description: 'Paid, 0.25 USDG over x402: the exchanges\' own halt lists (NYSE + Nasdaq) for a ticker, reason, since and resumption, next to the issuer-relayed oracle row, with whether they agree. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {symbol: {type: 'string', description: 'ticker, e.g. AAPL'}}, required: ['symbol']}},
   {name: 'usdg_ledger', route: 'ledger', price: '0.05', title: 'USDG ledger for an address', description: 'Paid, 0.05 USDG over x402: every USDG in and out of an address over N days (max 14), reconciled against the on-chain balance. Returns the x402 payment link.',
-    inputSchema: {type: 'object', properties: {address: {type: 'string'}, days: {type: 'number'}}, required: ['address']}}];
+    inputSchema: {type: 'object', properties: {address: {type: 'string'}, days: {type: 'number'}}, required: ['address']}},
+  {name: 'wallet_handover', route: 'tba-read', price: '2', title: 'Agent-wallet handover read (ERC-6551) before you accept or spend from it', description: 'Paid, 2 USDG over x402: for an ERC-6551 agent wallet on Base or Robinhood Chain, who owns it now, which callers can still act (live, or dormant from a past owner), overrides and lock.',
+    inputSchema: {type: 'object', properties: {account: {type: 'string', description: '6551 wallet 0x…'}, chain: {type: 'string', description: 'base or robinhood'}}, required: ['account']}},
+  {name: 'poison_check', route: 'poison-check', price: '1', title: 'Poison check before paying an address copied from a wallet history', description: 'Paid, 1 USDG over x402: look-alike tokens and look-alike counterparties (same first and last characters, different middle) in a wallet history on Robinhood Chain, with the real address.',
+    inputSchema: {type: 'object', properties: {address: {type: 'string', description: 'wallet whose history you copy payees from, 0x…'}}, required: ['address']}}];
+// What an outside agent needs to find, price and pay a read: the menu, never the method.
+const qs = t => Object.keys(t.inputSchema.properties).map(k => `${k}={${k}}`).join('&');
+function llmsTxt(origin) {
+  return [`# New Jazz City · JazzCat reads`, ``,
+    `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
+    `## Paid reads (GET, x402: call it, get a 402 with the price, pay, call again with the payment header)`,
+    ...PAID_TOOLS.map(t => `- [${t.title}](${origin}/x402/${t.route}?${qs(t)}): ${t.price} USDG`), ``,
+    `## How to pay`,
+    `- x402 v1 (network "robinhood") or v2 (network "eip155:4663"), exact scheme, USDG ${USDG}, payTo JazzCat #1 ${CAT1_WALLET.toLowerCase()}. Pay the full address, never one copied by its ends.`,
+    `- Base: USDC ${BASE_USDC.toLowerCase()} on eip155:8453 is accepted where the 402 offers it.`,
+    `- Every Cat sells the same reads at its own wallet: add ?cat=N.`,
+    `- Machine-readable: ${origin}/.well-known/x402 and ${origin}/.well-known/agent-card.json`, ``,
+    `## Free`,
+    `- [Explain any Robinhood Chain transaction](${origin}/?tx={hash})`,
+    `- [Who controls an ERC-8004 agent](${origin}/control?agentId={id})`,
+    `- MCP (Streamable HTTP, POST): ${origin}/mcp`, ``,
+    `## Track record`,
+    `- [The Book](${origin}/book.json): every paid delivery, recorded on chain in ReceiptBook ${BOOK.toLowerCase()} with its payment tx and work hash.`].join('\n');
+}
+function agentCard(origin) {
+  return {name: 'JazzCat #1 · New Jazz City reads', description: 'Chain reads for agents, verdict first, paid per call over x402.', url: origin,
+    provider: {organization: 'New Jazz City'}, identity: {standard: 'ERC-8004', chainId: 4663, registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: 26063},
+    payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453'], asset: {robinhood: USDG, base: BASE_USDC}, payTo: CAT1_WALLET.toLowerCase()},
+    mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json',
+    skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, input: t.inputSchema}))};
+}
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
 
 export default {
@@ -659,6 +692,8 @@ export default {
       try { const r = json(await control(url.searchParams.get('agentId'))); r.headers.set('cache-control', 'public, max-age=600'); await cache.put(key, r.clone()); return r; } catch (e) { return json({error: e.message}, 400); }
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
+    if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
+    if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
       resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/tba-read?account={account}&chain={chain}', '2'], ['/x402/poison-check?address={address}', '1'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/sol-trail?mint={mint}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
         accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
