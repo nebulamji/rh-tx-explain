@@ -320,13 +320,15 @@ async function catWallet(n) {
   if (!owner || owner === '0x' || !acct) throw new Error('No JazzCat #' + n + ' on Robinhood Chain.');
   const wallet = '0x' + acct.slice(26); catWallets.set(n, wallet); return wallet;
 }
+const CAT_AGENTS = {'1': 26063, '2': 26078, '3': 26079}; // ERC-8004 agent IDs whose agentWallet is the Cat's own 6551 wallet
 const catCard = (n, wallet, origin) => ({type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #' + n,
   description: `JazzCat #${n}, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402, paid in USDG to its own wallet. Credit-line read (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer and agent-control check.`,
   image: `https://jazzcatsfun.pages.dev/agents/${n}.svg`,
   services: [...['line-read', 'money-trail', 'ledger', 'transfer-read'].map(r => ({name: 'x402', endpoint: `${origin}/x402/${r}?cat=${n}`, version: '1'})),
     {name: 'MCP', endpoint: `${origin}/mcp?cat=${n}`, version: '2025-06-18'}, {name: 'web', endpoint: origin + '/'}],
   x402Support: true, active: true, supportedTrust: ['reputation'], agentWallet: 'eip155:4663:' + wallet,
-  token: {chainId: 4663, contract: GENESIS, tokenId: n, account: 'ERC-6551 AccountV3, owned by whoever holds the Cat'}});
+  token: {chainId: 4663, contract: GENESIS, tokenId: n, account: 'ERC-6551 AccountV3, owned by whoever holds the Cat'},
+  ...(CAT_AGENTS[n] ? {registrations: [{agentId: CAT_AGENTS[n], agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'}]} : {})});
 
 // ---- Free: who controls an ERC-8004 agent now, and since when (for registries and listing pages) ----
 export async function control(agentId) {
