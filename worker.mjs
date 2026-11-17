@@ -325,12 +325,16 @@ async function coinQuote(token, usd, chain = 'robinhood') {
 
 // ERC-8004 agent card for JazzCat #1 as a seller: its paid endpoints and the wallet it is paid in.
 const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #1',
-  description: 'JazzCat #1, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402. Credit-line read before a lender opens a line (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer. Paid in USDG straight into its own token-bound wallet.',
+  description: 'JazzCat #1, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells independent evidence to agents over x402 and BatchDesk. Halt check for Stock Tokens against the exchanges own lists (0.25 USDG), transfer read before you accept (2 USDG), credit-line read (1 USDG), money trail for any coin on Robinhood Chain or Solana (1 USDG; 0.70 per item in batches), USDG ledger with bridged funding traced (0.05 USDG), free transaction explainer. Every paid job is a row in its on-chain ReceiptBook. Paid in USDG straight into its own token-bound wallet.',
   image: 'https://jazzcatsfun.pages.dev/agents/1.svg',
   services: [
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/line-read', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/money-trail', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/ledger', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/transfer-read', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/halt-check', version: '1'},
+    {name: 'receipts', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/book.json', version: '1'},
+    {name: 'profile', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/cat/1', version: '1'},
     {name: 'MCP', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/mcp', version: '2025-06-18'},
     {name: 'web', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/'}],
   x402Support: true, active: true, supportedTrust: ['reputation'],
