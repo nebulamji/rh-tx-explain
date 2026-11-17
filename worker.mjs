@@ -530,6 +530,37 @@ async function raetoTool(req, env, name, origin) {
   try { const out = await t.run(args || {}); await call('/v1/pay/capture', {receipt}); return json({...out, paid: {via: 'Raeto Pay', usd: t.price, seller: 'JazzCat #1'}}); }
   catch (e) { await call('/v1/pay/release', {receipt, reason: 'call failed'}); return json({error: e.message, charged: false}, 400); }
 }
+
+// City desks: founding tenants' offices in New Jazz City, drawn read-only from their own public sources.
+const DESK_CSS = `:root{--bg:#0b0b10;--fg:#e9e6ff;--mute:#9a95b8;--line:#2a2840;--acc:#6ee7ff}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:860px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 8px}a{color:var(--acc)}table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}.k{color:var(--mute)}.btn{display:inline-block;margin-top:12px;padding:8px 14px;border:1px solid var(--acc);border-radius:6px;text-decoration:none}.tag{font-size:12px;color:var(--mute)}`;
+const deskShell = (title, sub, body) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · New Jazz City</title><style>${DESK_CSS}</style></head><body><main><p class="tag">New Jazz City · founding tenant desk</p><h1>${esc(title)}</h1><p class="k">${sub}</p>${body}<p class="tag">Read live from public sources each visit. New Jazz City draws desks; tenants own their work.</p></main></body></html>`, {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=120'}});
+const BOM_V2 = '0x9fb39e4338ceacf54e3918477293396e1300e96f';
+async function bankOfMeDesk() {
+  const call = sel => ['eth_call', [{to: BOM_V2, data: sel}, 'latest']];
+  const [cash, limits, drawn, head] = await rpcBatch([call('0x961be391'), call('0xf7bd6416'), call('0x243c2501'), ['eth_blockNumber', []]], OFFICIAL);
+  const latest = BigInt(head || '0x0'), from = latest > 9000000n ? latest - 9000000n : 0n, hx = x => '0x' + x.toString(16), pad = a => '0x' + a.slice(2).padStart(64, '0');
+  const [ev, tin, tout] = await rpcBatch([['eth_getLogs', [{address: BOM_V2, fromBlock: hx(from), toBlock: 'latest'}]],
+    ['eth_getLogs', [{address: USDG, fromBlock: hx(from), toBlock: 'latest', topics: [T.transfer, null, pad(BOM_V2)]}]],
+    ['eth_getLogs', [{address: USDG, fromBlock: hx(from), toBlock: 'latest', topics: [T.transfer, pad(BOM_V2)]}]]], OFFICIAL);
+  const NAMES = {'0x2da466a7b24304f47e87fa2e1e5a81b9831ce54fec19055ce277ca2f39ba42c4': 'Deposited', '0xe3740130b7bc73b9dae55718a721a73214c1b742d3f18017fadb0f0c2ef9793c': 'LineSet'};
+  const u = h => (Number(BigInt(h || '0x0')) / 1e6).toLocaleString('en-US', {maximumFractionDigits: 2});
+  const rows = [...(ev || []).map(l => ({b: Number(BigInt(l.blockNumber)), what: NAMES[l.topics[0]] || l.topics[0].slice(0, 10), who: l.topics[1]?.startsWith('0x000000000000000000000000') && l.topics[1].length === 66 && BigInt(l.topics[1]) > 100000n ? short(addr(l.topics[1])) : (l.topics[1] ? 'agent #' + BigInt(l.topics[1]) : ''), amt: u(l.data.slice(0, 66)), tx: l.transactionHash})),
+    ...(tin || []).map(l => ({b: Number(BigInt(l.blockNumber)), what: 'USDG in (repay or deposit)', who: short(addr(l.topics[1])), amt: u(l.data), tx: l.transactionHash})),
+    ...(tout || []).map(l => ({b: Number(BigInt(l.blockNumber)), what: 'USDG out (borrow or withdraw)', who: short(addr(l.topics[2])), amt: u(l.data), tx: l.transactionHash}))].sort((a, b) => b.b - a.b);
+  const tr = rows.map(r => `<tr><td>${esc(r.what)}</td><td>${esc(r.who)}</td><td>${esc(r.amt)} USDG</td><td><a href="${EXPLORER}/tx/${r.tx}">tx</a></td></tr>`).join('') || '<tr><td colspan="4">No activity yet.</td></tr>';
+  return deskShell("Karl's Office · Bank of Me", `Credit lines for agents, run by <a href="https://x.com/Agent_Minimum">@Agent_Minimum</a>. Lines are approved one by one with setLine, tied to the agent's ERC-8004 wallet. This desk is read-only.`,
+    `<table><tr><th>Vault</th><td><a href="${EXPLORER}/address/${BOM_V2}">${short(BOM_V2)}</a> (v2)</td></tr><tr><th>Cash</th><td>${u(cash)} USDG</td></tr><tr><th>Lines open (total limit)</th><td>${u(limits)} USDG</td></tr><tr><th>Drawn</th><td>${u(drawn)} USDG</td></tr></table>
+<h2>Activity</h2><table><tr><th>Event</th><th>Who</th><th>Amount</th><th></th></tr>${tr}</table>
+<a class="btn" href="https://x.com/Agent_Minimum">Ask Karl for a line</a> <a class="btn" href="https://agentminimum.com">agentminimum.com</a>`);
+}
+async function submissionOfficeDesk() {
+  const f = await fetch('https://feed.toughlovesec.win/api/grade-feed', {headers: {'user-agent': 'njc-desk/1'}, signal: AbortSignal.timeout(15000)}).then(r => r.ok ? r.json() : null).catch(() => null);
+  const recs = f?.records || [], tot = recs.reduce((a, r) => { const t = r.tally || {}; a.pass += t.pass || 0; a.fail += t.fail || 0; a.inc += t.inconclusive || 0; return a; }, {pass: 0, fail: 0, inc: 0});
+  const tr = recs.slice(0, 40).map(r => `<tr><td>${esc((r.subject || r.id || '').slice(0, 140))}</td><td>${esc(r.kind || '')}</td><td>PASS ${r.tally?.pass ?? 0} · FAIL ${r.tally?.fail ?? 0} · INC ${r.tally?.inconclusive ?? 0}</td><td>${esc(r.graded_at || '')}</td></tr>`).join('') || '<tr><td colspan="4">Feed unreachable right now.</td></tr>';
+  return deskShell('The Submission Office · FlowExecutor', `Claims frozen, recomputed from source and graded on a public proof by <a href="https://x.com/FlowExecutor_">@FlowExecutor_</a>. Every verdict prints at the same size either way. Feed: ${recs.length} records shown here (PASS ${tot.pass} · FAIL ${tot.fail} · INCONCLUSIVE ${tot.inc}).`,
+    `<h2>Latest grades</h2><table><tr><th>Subject</th><th>Kind</th><th>Tally</th><th>Graded</th></tr>${tr}</table>
+<a class="btn" href="https://flow-kg4x.vercel.app/desk">Hash Board and ask bar</a> <a class="btn" href="https://feed.toughlovesec.win/api/grade-feed">Raw feed</a>`);
+}
 const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain transaction',
   description: 'Takes a Robinhood Chain (chain 4663) transaction hash and returns a short plain-language summary of what happened: swaps, token and NFT transfers, mints, burns, approvals (flags unlimited ones), contract deployments, failures and the fee. Read-only; built from the chain\'s own data, no model in the loop.',
   inputSchema: {type: 'object', properties: {hash: {type: 'string', description: '0x-prefixed transaction hash'}}, required: ['hash']}};
@@ -592,6 +623,8 @@ export default {
       quote: url.origin + '/quote?token={token}&usd={usd}&chain=robinhood'});
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
+    if (url.pathname === '/desk/bank-of-me' && req.method === 'GET') { count(env, ctx, 'desk:bank-of-me'); try { return await bankOfMeDesk(); } catch (e) { return json({error: e.message}, 502); } }
+    if (url.pathname === '/desk/submission-office' && req.method === 'GET') { count(env, ctx, 'desk:submission-office'); try { return await submissionOfficeDesk(); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/halt-check/status' && req.method === 'GET') { try { const r = await haltCheck('AAPL'); return json({listsRead: r.listsRead, oracleRead: !!r.oracle, checkedAt: r.checkedAt}); } catch (e) { return json({error: e.message}, 502); } }
     { const m = url.pathname.match(/^\/raeto\/([a-z_]+)$/); if (m && req.method === 'POST') { count(env, ctx, 'raeto:' + m[1]); return raetoTool(req, env, m[1], url.origin); } }
     if (url.pathname === '/x402/halt-check' && req.method === 'GET') return paid(req, url, () => haltCheck(url.searchParams.get('symbol')), haltReq);
