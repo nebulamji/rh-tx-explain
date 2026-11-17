@@ -247,6 +247,39 @@ export async function moneyTrail(token) {
     verdict: flags.length ? 'read the flags' : 'no flags', by: 'JazzCat #1 (agent #26063), independent: read from the chain'};
 }
 
+// Paid: halt check. Is the stock behind a Robinhood Stock Token halted, per the exchanges' own lists (NYSE trade-halts covers
+// NYSE, NYSE American and Nasdaq names; Nasdaq Trader is the second listing source), next to the issuer-relayed oracle row.
+// An independent witness for any hook, desk or agent that trades Stock Tokens. 0.25 USDG to the Cat.
+const HALT_PRICE = '250000', HARMONIC_EQ = 'https://harmonicagent.solutions/api/oracle/equities';
+const haltReq = resource => ({...ledgerReq(resource), maxAmountRequired: HALT_PRICE,
+  description: "Halt check for a Stock Token's underlying: the exchanges' own halt lists (NYSE + Nasdaq), reason, since, resumption, against the issuer-relayed oracle row. Independent witness, read by JazzCat #1.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/halt-check?symbol={symbol}', queryParams: {symbol: {type: 'string', description: 'ticker, e.g. AAPL'}}}}});
+function etMs(date, time) { // a New York wall-clock date + time to epoch ms
+  if (!date || !time) return null;
+  const [y, m, d] = date.includes('/') ? [date.slice(6, 10), date.slice(0, 2), date.slice(3, 5)] : date.split('-');
+  const g = Date.UTC(+y, +m - 1, +d, ...time.slice(0, 8).split(':').map(Number));
+  return g + (new Date(new Date(g).toLocaleString('en-US', {timeZone: 'UTC'})) - new Date(new Date(g).toLocaleString('en-US', {timeZone: 'America/New_York'})));
+}
+export async function haltCheck(symbol) {
+  const s = String(symbol || '').toUpperCase(); if (!/^[A-Z.]{1,8}$/.test(s)) throw new Error('symbol (ticker) is required, e.g. AAPL.');
+  const get = (u, t) => fetch(u, {headers: {'user-agent': 'Mozilla/5.0'}, signal: AbortSignal.timeout(15000)}).then(r => r.ok ? (t ? r.text() : r.json()) : null).catch(() => null);
+  const [ny, nq, hq] = await Promise.all([get('https://www.nyse.com/api/trade-halts/current'), get('https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts', true), get(HARMONIC_EQ)]);
+  if (!ny && !nq) throw new Error('Both exchange halt lists are unreachable right now; not charged.');
+  const now = Date.now(), lists = [];
+  for (const h of ny?.results?.tradeHalts || []) if (h.symbol === s) { const r = etMs(h.formatedResumptionDate || h.formatedHaltDate, h.formatedResumptionTime);
+    lists.push({source: 'NYSE trade-halts', venue: h.sourceExchange, reason: h.reason, haltedAtEt: `${h.formatedHaltDate} ${h.formatedHaltTime}`, resumesAtEt: h.formatedResumptionTime ? `${h.formatedResumptionDate || h.formatedHaltDate} ${h.formatedResumptionTime}` : null, haltedNow: !r || r > now}); }
+  for (const it of (nq || '').match(/<item>[\s\S]*?<\/item>/g) || []) { const f = Object.fromEntries([...it.matchAll(/<ndaq:(\w+)>([\s\S]*?)<\/ndaq:\1>/g)].map(m => [m[1], m[2].trim()]));
+    if (f.IssueSymbol !== s) continue; const r = etMs(f.ResumptionDate, f.ResumptionTradeTime);
+    lists.push({source: 'Nasdaq Trader halts', venue: f.Market, reason: f.ReasonCode, haltedAtEt: `${f.HaltDate} ${(f.HaltTime || '').slice(0, 8)}`, resumesAtEt: f.ResumptionTradeTime ? `${f.ResumptionDate} ${f.ResumptionTradeTime}` : null, haltedNow: !r || r > now}); }
+  const exchangeHalted = lists.some(l => l.haltedNow), row = hq?.rows?.find(r => r.symbol === s);
+  const oracle = row ? {source: 'Harmonic equities oracle (issuer-relayed)', token: row.address, verdict: row.verdict, issuerHalted: row.issuer?.halted ?? null, rowAt: row.at} : null;
+  const oracleHalted = oracle ? oracle.verdict === 'halted' || oracle.issuerHalted === true : null;
+  return {symbol: s, checkedAt: new Date(now).toISOString(), exchangeHalted, exchangeLists: lists, listsRead: {nyse: !!ny, nasdaq: !!nq}, oracle,
+    agree: oracle ? oracleHalted === exchangeHalted : null,
+    verdict: exchangeHalted ? (oracle && !oracleHalted ? `HALTED on the exchange, but the oracle row says ${oracle.verdict}: do not trust an open verdict now` : 'HALTED on the exchange') : (oracle && oracleHalted ? 'clear on both exchange lists, but the oracle row says halted' : 'not halted on the exchange lists'),
+    by: 'JazzCat #1 (agent #26063): independent of the issuer quote API'};
+}
+
 // Paid: transfer read. Right before a buyer accepts a two-step ownership transfer (Ownable2Step and similar), who can still act:
 // current owner, pending owner, when the transfer started, and every ownership event since. 2 USDG to the Cat.
 const TRANSFER_PRICE = '2000000', OT_STARTED = '0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700', OT_DONE = '0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0';
@@ -324,7 +357,7 @@ const CAT_AGENTS = {'1': 26063, '2': 26078, '3': 26079}; // ERC-8004 agent IDs w
 const catCard = (n, wallet, origin) => ({type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #' + n,
   description: `JazzCat #${n}, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells chain reads to agents over x402, paid in USDG to its own wallet. Credit-line read (1 USDG), money trail for any coin (1 USDG), USDG ledger for any address (0.05 USDG), free transaction explainer and agent-control check.`,
   image: `https://jazzcatsfun.pages.dev/agents/${n}.svg`,
-  services: [...['line-read', 'money-trail', 'ledger', 'transfer-read'].map(r => ({name: 'x402', endpoint: `${origin}/x402/${r}?cat=${n}`, version: '1'})),
+  services: [...['line-read', 'money-trail', 'ledger', 'transfer-read', 'halt-check'].map(r => ({name: 'x402', endpoint: `${origin}/x402/${r}?cat=${n}`, version: '1'})),
     {name: 'MCP', endpoint: `${origin}/mcp?cat=${n}`, version: '2025-06-18'}, {name: 'web', endpoint: origin + '/'}],
   x402Support: true, active: true, supportedTrust: ['reputation'], agentWallet: 'eip155:4663:' + wallet,
   token: {chainId: 4663, contract: GENESIS, tokenId: n, account: 'ERC-6551 AccountV3, owned by whoever holds the Cat'},
@@ -477,6 +510,8 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {agentId: {type: 'string'}, vault: {type: 'string'}, wallet: {type: 'string'}}, required: ['agentId', 'vault', 'wallet']}},
   {name: 'transfer_read', route: 'transfer-read', price: '2', title: 'Transfer read before accepting an agent or contract', description: 'Paid, 2 USDG over x402: who owns a contract now, who is pending, when the transfer started, every ownership event, and whether the seller can still act before you accept. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {contract: {type: 'string', description: 'contract address 0x…'}}, required: ['contract']}},
+  {name: 'halt_check', route: 'halt-check', price: '0.25', title: 'Is a Stock Token\'s stock halted? (exchange lists, not the issuer feed)', description: 'Paid, 0.25 USDG over x402: the exchanges\' own halt lists (NYSE + Nasdaq) for a ticker, reason, since and resumption, next to the issuer-relayed oracle row, with whether they agree. Returns the x402 payment link.',
+    inputSchema: {type: 'object', properties: {symbol: {type: 'string', description: 'ticker, e.g. AAPL'}}, required: ['symbol']}},
   {name: 'usdg_ledger', route: 'ledger', price: '0.05', title: 'USDG ledger for an address', description: 'Paid, 0.05 USDG over x402: every USDG in and out of an address over N days (max 14), reconciled against the on-chain balance. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {address: {type: 'string'}, days: {type: 'number'}}, required: ['address']}}];
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
@@ -510,11 +545,13 @@ export default {
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
-      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
+      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
         accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
       quote: url.origin + '/quote?token={token}&usd={usd}&chain=robinhood'});
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
+    if (url.pathname === '/halt-check/status' && req.method === 'GET') { try { const r = await haltCheck('AAPL'); return json({listsRead: r.listsRead, oracleRead: !!r.oracle, checkedAt: r.checkedAt}); } catch (e) { return json({error: e.message}, 502); } }
+    if (url.pathname === '/x402/halt-check' && req.method === 'GET') return paid(req, url, () => haltCheck(url.searchParams.get('symbol')), haltReq);
     if (url.pathname === '/x402/line-read' && req.method === 'GET') return paid(req, url, () => lineRead(url.searchParams.get('agentId'), url.searchParams.get('vault'), url.searchParams.get('wallet')), lineReq);
     if (url.pathname !== '/mcp' || req.method !== 'POST') return json({error: 'POST /mcp (MCP JSON-RPC), GET /?tx=0x… (free), or GET /x402/ledger?address=0x… (0.05 USDG via x402)'}, 404);
     const m = await req.json().catch(() => null); if (!m) return json({jsonrpc: '2.0', id: null, error: {code: -32700, message: 'Parse error'}}, 400);
