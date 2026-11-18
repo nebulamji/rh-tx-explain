@@ -1,0 +1,188 @@
+{
+ "schema": "njc-trail/solana-v1",
+ "chain": "solana",
+ "mint": "HHoDt9mEET28qFFWtUPNTqGcmRQPh3TJChAWHmBopump",
+ "readAt": "2026-11-18T14:57:35.421Z",
+ "verdict": "no fee-sharing config: creator fees accrue to the creator yH9z..DEuf | top wallets outside pools hold 55.12%; 1 insider network(s) detected by RugCheck",
+ "token": {
+  "name": "HYPE",
+  "symbol": "HYGG",
+  "supply": 982308479.439723,
+  "decimals": 6,
+  "mintAuthority": null,
+  "freezeAuthority": null,
+  "metadataMutable": false,
+  "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+ },
+ "claim": {
+  "description": "Hype.gg is an all-in-one trading terminal. Combining SocialFi trading with integrated professional trading terminal. Instant cashback & more holder rewards powered directly through $HYGG",
+  "website": "https://hype.gg",
+  "twitter": "https://x.com/hypedotgg",
+  "telegram": "https://t.me/hypedotgg",
+  "uri": "https://ipfs.io/ipfs/bafkreic6etarrzqzjozfo7bzp2d6su4tep2tcr6eobpxefv55t34gbh2cy"
+ },
+ "launch": {
+  "launchpad": "Pump.Fun",
+  "creator": "yH9z3M9WRAsmBDyRErUtjC385qFWQA4p6z3D7MbDEuf",
+  "creatorHolding": {
+   "tokens": 27802848.463024,
+   "pctOfSupply": 2.8304,
+   "accounts": 1,
+   "source": "Solana RPC getTokenAccountsByOwner"
+  },
+  "detectedAt": "2026-11-15T00:18:11.350458953Z",
+  "markets": [
+   {
+    "type": "meteora_damm_v2",
+    "pool": "4yQmhXDh4gK9TCPCx6zUZuDenkRCqsaUsg3bKV4Ut65f",
+    "liquidityUsd": 45108
+   },
+   {
+    "type": "pump_fun_amm",
+    "pool": "A3jnjmkwicqKJNYdju2wa7APPmgX6AutthjtbyJcuGKx",
+    "liquidityUsd": 43705
+   },
+   {
+    "type": "meteoraDlmm",
+    "pool": "xvNb6Jg7j16kWJigivpgP5hF4FdG79yjP13Fyj6sPwW",
+    "liquidityUsd": 0
+   },
+   {
+    "type": "meteora_damm_v2",
+    "pool": "6sTY4VcayPgMiJDBr5XbtEw2pFPaegu6VwQCicxrt586",
+    "liquidityUsd": 0
+   }
+  ]
+ },
+ "holders": {
+  "total": 1650,
+  "top10": [
+   {
+    "owner": "5gkSLhSHbtQtmUDdAgEwftfPMSRMeCXCXL7JroUvCih",
+    "pct": 40.72,
+    "insider": false,
+    "label": "Streamflow Vault",
+    "pool": false
+   },
+   {
+    "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+    "pct": 6.44,
+    "insider": false,
+    "label": "Meteora DAMM v2 Pool",
+    "pool": true
+   },
+   {
+    "owner": "AuB2E5fRJe7PhGJZuErUBe4e8Em1nijCQuyppYx4uoEC",
+    "pct": 3.34,
+    "insider": false,
+    "label": "Streamflow Vault",
+    "pool": false
+   },
+   {
+    "owner": "EwJYY4q2rcrdEH26doRbYX9JxbpYPSNZvRLgzhPKi418",
+    "pct": 2.64,
+    "insider": false,
+    "label": null,
+    "pool": false
+   },
+   {
+    "owner": "7WMuKHSBmm6YAf6Q41wGvHTuUSMHAVbU7243thFN5uv5",
+    "pct": 2.09,
+    "insider": false,
+    "label": null,
+    "pool": false
+   },
+   {
+    "owner": "9mNdTGr1mw5KkFBwdBXXdYDWsHDsG6pruQFNqwuPBRxj",
+    "pct": 1.86,
+    "insider": false,
+    "label": null,
+    "pool": false
+   },
+   {
+    "owner": "5GndDwfuyS4nPqft6R6sKC5wzU5HEp9SVGuQEDVjTqQN",
+    "pct": 1.36,
+    "insider": false,
+    "label": null,
+    "pool": false
+   },
+   {
+    "owner": "HDLTWWVFBpJyDj3U3t41x45p8cxJJhmhrvaJpiny6tmm",
+    "pct": 1.05,
+    "insider": false,
+    "label": null,
+    "pool": false
+   },
+   {
+    "owner": "7LjKGGvfysh72yapo5dcUy3ENwFKHPq5ioi7R2Rz6sGA",
+    "pct": 1.05,
+    "insider": false,
+    "label": null,
+    "pool": false
+   },
+   {
+    "owner": "6aeWUYHX6sKTR6ScgQLnrgfka7fjJojwgxMUAG8eCreV",
+    "pct": 1.01,
+    "insider": false,
+    "label": null,
+    "pool": false
+   }
+  ],
+  "insiderNetworks": 1,
+  "top10Pct": 61.56,
+  "top10ExPoolPct": 55.12
+ },
+ "fees": {
+  "sharingConfig": {
+   "address": "91qdSRLDZBRopXebUZNP9JhGLGG16bQLKyAVDKsNGKxZ",
+   "exists": false
+  },
+  "feeCreator": "yH9z3M9WRAsmBDyRErUtjC385qFWQA4p6z3D7MbDEuf",
+  "bondingCurveVault": {
+   "address": "Cid8gnfrA5TiBu6WAiJMMP1woMsE8wdtCJTYMqVmLxyE",
+   "sol": 0.00065024,
+   "lastActivity": [
+    {
+     "sig": "3ac5PxbJGKJm6PSAFT8HZU5UwDxFBh7iLppsRfXP5iE4Q1PSSaH2n7TvRpaWezx1pQTMtBMfi6NzKg4vbw5GJmKp",
+     "at": "2026-11-15T00:27:15.000Z"
+    },
+    {
+     "sig": "2jP8v3rAf5paNUaZG7VjTeDafzFqsLKpgaUEoN66EQERqjg3rUVMuTc9p1z76vKbpF5dcSAn7qWWjVXxoVAPmLoF",
+     "at": "2026-11-15T00:19:47.000Z"
+    },
+    {
+     "sig": "3si4gtv1Zh5HgFquvzw2yRv2Mo9zTkT2qbrxqw7erKkF2qUnWMLHyZCJ4jBWsdbKWgcpasgBzacJk7fz6rKxdQMu",
+     "at": "2026-11-15T00:19:27.000Z"
+    },
+    {
+     "sig": "3wZL2tFTwZd6rt4JSSwdX8izkvMPvxaoVxsxmtzpy5z6NovMr9bXvma6qT6skF91GvAzAdP3zjA2yawJ3A5mc7Yu",
+     "at": "2026-11-15T00:19:26.000Z"
+    },
+    {
+     "sig": "2P9FeqzaFmfaw8wr4unqvG75iscdSN8LrzsJeztuZdEWGMJY5RWJVMeV71AbUzBrpq6tziUZUuMVbZGJPwmjEgXY",
+     "at": "2026-11-15T00:19:25.000Z"
+    }
+   ]
+  },
+  "pumpSwapVault": {
+   "authority": "4nnCiTnU9PRe32FZmcH8EroD2y8PpyZkwqaawR6fxP9x",
+   "wsolAccount": "3UvEuugkmaKemBxnjBZ1vqciCKQuW5gk8HQEdRPUKKd2",
+   "sol": 0.183451822
+  }
+ },
+ "risks": [],
+ "holes": [],
+ "confidence": {
+  "token": "VERIFIED (mint account)",
+  "holders": "FIRST-PARTY (RugCheck index)",
+  "fees": "VERIFIED (PDA accounts read on chain)",
+  "claim": "FIRST-PARTY (coin metadata)"
+ },
+ "sources": [
+  "api.rugcheck.xyz report",
+  "Solana RPC getAccountInfo(mint)",
+  "metadata https://gateway.pinata.cloud/ipfs/bafkreic6etarrzqzjozfo7bzp2d6su4tep2tcr6eobpxefv55t34gbh2cy",
+  "Solana RPC: pump fee-sharing config PDA, creator-vault PDAs"
+ ],
+ "by": "JazzCat #1 (ERC-8004 agent #26063), New Jazz City"
+}
