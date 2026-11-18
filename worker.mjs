@@ -537,7 +537,8 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   const baseReq = holder ? {...requirement, network: 'base', payTo: holder, asset: BASE_USDC, extra: {name: 'USD Coin', version: '2'}} : null, base2 = baseReq && {...v2Of(baseReq), network: 'eip155:8453'};
   const solReq = {...requirement, network: 'solana', payTo: SOL_PAYTO, asset: SOL_USDC, extra: {feePayer: SOL_FEEPAYER}}, sol2 = {...v2Of(solReq), network: SOL_V2};
   const req2 = v2Of(requirement), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
-  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, accepts: [requirement, {...requirement, network: 'eip155:' + CHAIN_ID}, ...(baseReq ? [baseReq] : []), solReq]}), {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: requirement.resource, description: requirement.description, mimeType: 'application/json'}, accepts: [req2, ...(base2 ? [base2] : []), sol2]})}});
+  const buyAt = marketLink(url.pathname.replace('/x402/', ''), url.search);
+  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, ...(buyAt ? {market: buyAt} : {}), accepts: [requirement, {...requirement, network: 'eip155:' + CHAIN_ID}, ...(baseReq ? [baseReq] : []), solReq]}), {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: requirement.resource, description: requirement.description, mimeType: 'application/json'}, accepts: [req2, ...(base2 ? [base2] : []), sol2]})}});
   if (!header) return offer('Payment required');
   let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return offer('Bad payment header'); }
   const net = payload.accepted?.network ?? payload.network ?? '', onBase = net === 'base' || net === 'eip155:8453', onSol = net === 'solana' || net === SOL_V2;
@@ -629,6 +630,10 @@ const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-80
 const JOBS_TOOL = {name: 'jobs_board', title: 'Open paid jobs for agents',
   description: 'Free. Open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow\'s desk, Priors\' line board, BatchDesk desks), read from each board and the chain, refreshed every 30 minutes. Each job names its board, pay and where to take it; deliver there and get paid to your own wallet. Optional filter: board name.',
   inputSchema: {type: 'object', properties: {board: {type: 'string', description: 'optional board name filter, e.g. "Claus Jobs"'}}}};
+// agents4663 buy links for JazzCat #1's reads (id = first 10 hex of sha256 of the listed URL). The market is the canonical
+// checkout: one x402 call, refund if the read fails, a real-buyer receipt on the Robinhood Chain Book. Direct routes stay live.
+const MARKET = 'https://agents4663.pages.dev/s/', MARKET_IDS = {"base-verdict": "5572e033d3", "ledger": "55a5bbc76c", "halt-check": "90afdd9ac7", "line-read": "ca68a9cd88", "money-trail": "c7509a0b7b", "poison-check": "a2e01cc235", "income-read": "a0512fbd99", "base-trail": "f284e9a0b1", "sol-trail": "28b8de88e3", "transfer-read": "2f006cdb7b", "tba-read": "4a261c25d7"};
+const marketLink = (route, search = '') => MARKET_IDS[route] ? MARKET + MARKET_IDS[route] + search : null;
 const PAID_TOOLS = [
   {name: 'money_trail', route: 'money-trail', price: '1', title: 'Money trail for a Robinhood Chain coin', description: 'Paid, 1 USDG over x402: who launched a coin and through what, where the supply went, launch-block buyers, top holders. Returns the x402 payment link; call it with payment for the read.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'coin contract 0x…'}}, required: ['token']}},
@@ -739,7 +744,7 @@ function llmsTxt(origin) {
   return [`# New Jazz City · JazzCat reads`, ``,
     `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
     `## Paid reads (GET, x402: call it, get a 402 with the price, pay, call again with the payment header)`,
-    ...PAID_TOOLS.map(t => `- [${t.title}](${origin}/x402/${t.route}?${qs(t)}): ${t.price} USDG`), ``,
+    ...PAID_TOOLS.map(t => `- [${t.title}](${origin}/x402/${t.route}?${qs(t)}): ${t.price} USDG${marketLink(t.route) ? ` · buy through the market: ${marketLink(t.route)}?${qs(t)}` : ''}`), ``,
     `Base token verdict track record: every verdict hashed hourly on Robinhood Chain and scored against liquidity and price at 24h and 72h: https://newjazzcity.pages.dev/verdicts/`, ``,
     `## How to pay`,
     `- x402 v1 (network "robinhood") or v2 (network "eip155:4663"), exact scheme, USDG ${USDG}, payTo JazzCat #1 ${CAT1_WALLET.toLowerCase()}. Pay the full address, never one copied by its ends.`,
@@ -762,7 +767,7 @@ function agentCard(origin) {
     payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453', 'solana', SOL_V2], asset: {robinhood: USDG, base: BASE_USDC, solana: SOL_USDC}, payTo: CAT1_WALLET.toLowerCase(), payToSolana: SOL_PAYTO},
     jobs: origin + '/jobs?format=json',
     mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json', buy: origin + '/buy?read={route}',
-    skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, input: t.inputSchema}))};
+    skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, ...(marketLink(t.route) ? {market: `${marketLink(t.route)}?${qs(t)}`} : {}), input: t.inputSchema}))};
 }
 // OpenAPI for x402scan and other discovery indexes (x402scan.com/discovery/spec.md): one GET per paid read with
 // x-payment-info in decimal USD and a 402 response; free pages carry security: [] so scanners skip them.
@@ -851,7 +856,7 @@ export default {
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
     if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...PAID_TOOLS]});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
     if (m.method === 'tools/call' && m.params?.name === JOBS_TOOL.name) {
       const b = JSON.parse((await env.USAGE.get('jobs:board')) || '{"jobs":[]}'), f = String(m.params.arguments?.board || '').toLowerCase();
       const jobs = f ? b.jobs.filter(j => j.board.toLowerCase().includes(f)) : b.jobs; count(env, ctx, 'mcp-jobs');
