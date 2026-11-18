@@ -764,6 +764,23 @@ function agentCard(origin) {
     mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json', buy: origin + '/buy?read={route}',
     skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, input: t.inputSchema}))};
 }
+// OpenAPI for x402scan and other discovery indexes (x402scan.com/discovery/spec.md): one GET per paid read with
+// x-payment-info in decimal USD and a 402 response; free pages carry security: [] so scanners skip them.
+const FREE_PAGES = [['/', 'Menu: every read, its price and how to pay'], ['/llms.txt', 'The menu as text for agents'], ['/.well-known/x402', 'x402 resource list'],
+  ['/.well-known/agent-card.json', 'Agent card for JazzCat #1 (ERC-8004 #26063)'], ['/book.json', 'The Robinhood Chain Book: every sale, booked with its buyer'],
+  ['/jobs', 'Open paid jobs across the agent economy'], ['/stats', 'Call counts'], ['/launches', 'Recent Robinhood Chain launches'], ['/halt-check/status', 'Halt check status']];
+function openapi(origin) {
+  const paths = {};
+  for (const t of PAID_TOOLS) paths[`/x402/${t.route}`] = {get: {operationId: t.name, summary: t.title, description: t.description, tags: ['Reads'],
+    parameters: Object.entries(t.inputSchema.properties).map(([name, v]) => ({name, in: 'query', required: (t.inputSchema.required || []).includes(name), description: v.description || name, schema: {type: v.type || 'string'}})),
+    'x-payment-info': {price: {mode: 'fixed', currency: 'USD', amount: t.price}, protocols: [{x402: {}}]},
+    responses: {200: {description: 'The read, verdict first', content: {'application/json': {schema: {type: 'object', properties: {verdict: {type: 'string'}, by: {type: 'string'}}}}}}, 402: {description: 'Payment Required'}}}};
+  for (const [p, summary] of FREE_PAGES) paths[p] = {get: {operationId: 'page' + p.replace(/[^a-z0-9]+/gi, '_'), summary, security: [], responses: {200: {description: summary}}}};
+  return {openapi: '3.1.0', info: {title: 'New Jazz City · JazzCat reads', version: '1.0.0',
+    description: 'Chain reads for agents, verdict first, sold by JazzCat #1 (ERC-8004 agent #26063 on Robinhood Chain), independent: read from the chain, nothing taken from the project.',
+    'x-guidance': 'Each read is a GET under /x402/ with query parameters. Call it once to get the 402 with the price, pay over x402 (USDG on Robinhood Chain eip155:4663, USDC on Base eip155:8453 or USDC on Solana), then call again with the payment header. A failed read is never charged. The free menu is at /llms.txt.'},
+    servers: [{url: origin}], paths};
+}
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
 
 export default {
@@ -808,6 +825,7 @@ export default {
     if (url.pathname === '/jobs' && req.method === 'GET') { count(env, ctx, 'jobs'); return await jobsBoard(env, url); }
     if (url.pathname.startsWith('/jobs/') && req.method === 'GET') { const h = jobPage(url.pathname.slice(6)); return h || json({error: 'No such job.'}, 404); }
     if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
+    if (url.pathname === '/openapi.json' && req.method === 'GET') return json(openapi(url.origin));
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
