@@ -1,6 +1,6 @@
 // Income read: who actually paid an agent. Every USDG into the agent's wallet over N days (max 60), sorted by payer and
-// labelled: its own wallets (ERC-8004 owner / agent wallet), loans (Priors pool), swap proceeds (DEX routers and pool
-// managers), and outside payers. Outside payers are the income; the rest is not. Reads Robinhood Chain only.
+// labelled: its own wallets (ERC-8004 owner / agent wallet), its own withdrawals (transfers its wallet started), loans
+// (Priors pool), swap proceeds (DEX routers and pool managers), and outside payers. Outside payers are the income; the rest is not. Reads Robinhood Chain only.
 const RPC = 'https://rpc.mainnet.chain.robinhood.com', REGISTRY = '0x8004a169fb4a3325136eb29fa0ceb6d2e539a432';
 const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168', TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const KNOWN = {'0x281210097f0de7a8fb6f87310af0f089c9c8de21': 'loan', '0x8366a39cc670b4001a1121b8f6a443a643e40951': 'swap',
@@ -36,18 +36,27 @@ export async function incomeRead(target, days = 30) {
     const [l] = await rpc([['eth_getLogs', [{address: USDG, fromBlock: '0x' + s.toString(16), toBlock: '0x' + e.toString(16), topics: [TRANSFER, null, pad(wallet)]}]]]);
     if (l) logs.push(...l);
   }
+  // A transfer the agent's own wallet started (a withdrawal, refund or claim from a vault, jar or escrow) is its own money
+  // coming back, whatever contract the USDG moved from: label it by who sent the transaction, not by the token's sender.
+  const hashes = [...new Set(logs.map(l => l.transactionHash))], starter = new Map();
+  for (let i = 0; i < hashes.length; i += 50) { const txs = await rpc(hashes.slice(i, i + 50).map(h => ['eth_getTransactionByHash', [h]])); txs.forEach((t, j) => t && starter.set(hashes[i + j], t.from.toLowerCase())); }
   const by = new Map();
-  for (const l of logs) { const p = addr(l.topics[1]), v = Number(BigInt(l.data)) / 1e6, r = by.get(p) || {payer: p, usdg: 0, transfers: 0, lastTx: null}; r.usdg += v; r.transfers++; r.lastTx = l.transactionHash; by.set(p, r); }
-  const kind = p => own.has(p) ? 'own' : KNOWN[p] || 'outside';
-  const rows = [...by.values()].map(r => ({...r, usdg: Math.round(r.usdg * 1e4) / 1e4, kind: kind(r.payer)})).sort((a, b) => b.usdg - a.usdg);
+  for (const l of logs) {
+    const from = addr(l.topics[1]), selfStarted = own.has(starter.get(l.transactionHash)) && !own.has(from) && !KNOWN[from];
+    const key = selfStarted ? 'withdrawal:' + from : from, v = Number(BigInt(l.data)) / 1e6, r = by.get(key) || {payer: from, usdg: 0, transfers: 0, lastTx: null, selfStarted};
+    r.usdg += v; r.transfers++; r.lastTx = l.transactionHash; by.set(key, r);
+  }
+  const kind = r => own.has(r.payer) ? 'own' : r.selfStarted ? 'withdrawal' : KNOWN[r.payer] || 'outside';
+  const rows = [...by.values()].map(({selfStarted, ...r}) => ({...r, usdg: Math.round(r.usdg * 1e4) / 1e4, kind: kind({...r, selfStarted})})).sort((a, b) => b.usdg - a.usdg);
   const sum = k => Math.round(rows.filter(r => r.kind === k).reduce((s, r) => s + r.usdg, 0) * 1e4) / 1e4, n = k => rows.filter(r => r.kind === k).length;
   const outside = rows.filter(r => r.kind === 'outside'), top = outside[0], topShare = top && sum('outside') ? Math.round(top.usdg / sum('outside') * 1000) / 10 : 0;
   const flags = [];
   if (sum('own')) flags.push(`${sum('own')} USDG came from the agent's own wallets: not income`);
   if (sum('loan')) flags.push(`${sum('loan')} USDG were loans: not income`);
+  if (sum('withdrawal')) flags.push(`${sum('withdrawal')} USDG were the agent's own withdrawals, refunds or claims from contracts (it sent those transactions): not income`);
   if (topShare >= 50) flags.push(`one outside payer is ${topShare}% of outside income`);
   return {chainId: 4663, agentId, wallet, days, window: {fromBlock: Number(from), toBlock: Number(latest)},
-    income: {outsideUsdg: sum('outside'), outsidePayers: n('outside')}, notIncome: {ownUsdg: sum('own'), loanUsdg: sum('loan'), swapUsdg: sum('swap')},
+    income: {outsideUsdg: sum('outside'), outsidePayers: n('outside')}, notIncome: {ownUsdg: sum('own'), withdrawalUsdg: sum('withdrawal'), loanUsdg: sum('loan'), swapUsdg: sum('swap')},
     payers: rows.slice(0, 40), flags, verdict: `${sum('outside')} USDG from ${n('outside')} outside payers in ${days} days`,
     note: 'Outside payers can still be related to the agent off chain; a funder trace reads where their USDG came from.',
     by: 'JazzCat #1 (agent #26063), New Jazz City: read from Robinhood Chain'};
