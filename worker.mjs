@@ -212,7 +212,7 @@ const baseTrailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TR
 // Base verdict: the flags line of the Base launch read, priced for bots that check before every buy; the full trail is the upsell.
 const VERDICT_PRICE = '30000';
 const baseVerdictReq = resource => ({...ledgerReq(resource), maxAmountRequired: VERDICT_PRICE,
-  description: "Base token verdict for a recent coin (Clanker and others, up to ~7 days old): flags or no flags from its launch read (one wallet's share, top-wallet concentration, snipers in the first blocks, repeat mints), burned share, launcher. 0.03 USDC. Full trail at /x402/base-trail. JazzCat #1, independent: read from Base.",
+  description: "Base token verdict for a recent coin (Clanker and others, up to ~7 days old): flags or no flags from its launch read (one wallet's share, top-wallet concentration, snipers in the first blocks, repeat mints), burned share, launcher. 0.03 USDC. Full trail at /x402/base-trail. Track record: every verdict hashed hourly on Robinhood Chain and scored at 24h and 72h, newjazzcity.pages.dev/verdicts/. JazzCat #1, independent: read from Base.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/base-verdict?token={token}', queryParams: {token: {type: 'string', description: 'ERC-20 address on Base'}}}, output: {type: 'object'}}});
 async function baseVerdict(token, origin) {
   const r = await baseTrail(token), walletTop = r.topHolders.filter(h => h.kind === 'wallet')[0];
@@ -638,7 +638,7 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {contract: {type: 'string', description: 'contract address 0x…'}}, required: ['contract']}},
   {name: 'sol_trail', route: 'sol-trail', price: '1', title: 'Solana coin trail', description: 'Paid, 1 USDG over x402: for a Solana coin (pump.fun and others): its claim, authorities, holders outside pools, the creator holding, and where creator fees route (fee-sharing config + creator vaults). Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {mint: {type: 'string', description: 'Solana token mint'}}, required: ['mint']}},
-  {name: 'base_verdict', route: 'base-verdict', price: '0.03', title: 'Base token verdict', description: 'Paid, 0.03 USDC/USDG over x402: flags or no flags for a recent Base coin from its launch read (wallet concentration, snipers, repeat mints, burned share, launcher). Returns the x402 payment link; the full trail is base_trail.',
+  {name: 'base_verdict', route: 'base-verdict', price: '0.03', title: 'Base token verdict', description: 'Paid, 0.03 USDC/USDG over x402: flags or no flags for a recent Base coin from its launch read (wallet concentration, snipers, repeat mints, burned share, launcher). Returns the x402 payment link; the full trail is base_trail. Track record: every verdict hashed hourly on Robinhood Chain and scored at 24h and 72h, newjazzcity.pages.dev/verdicts/.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'ERC-20 address on Base'}}, required: ['token']}},
   {name: 'base_trail', route: 'base-trail', price: '1', title: 'Base launch read', description: 'Paid, 1 USDG over x402: for a recent coin on Base (Clanker and others): who launched it, where the supply sits (burn, pool, wallets), first-block buyers, flags. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'ERC-20 address on Base'}}, required: ['token']}},
@@ -740,6 +740,7 @@ function llmsTxt(origin) {
     `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
     `## Paid reads (GET, x402: call it, get a 402 with the price, pay, call again with the payment header)`,
     ...PAID_TOOLS.map(t => `- [${t.title}](${origin}/x402/${t.route}?${qs(t)}): ${t.price} USDG`), ``,
+    `Base token verdict track record: every verdict hashed hourly on Robinhood Chain and scored against liquidity and price at 24h and 72h: https://newjazzcity.pages.dev/verdicts/`, ``,
     `## How to pay`,
     `- x402 v1 (network "robinhood") or v2 (network "eip155:4663"), exact scheme, USDG ${USDG}, payTo JazzCat #1 ${CAT1_WALLET.toLowerCase()}. Pay the full address, never one copied by its ends.`,
     `- Base: USDC ${BASE_USDC.toLowerCase()} on eip155:8453 is accepted where the 402 offers it.`,
