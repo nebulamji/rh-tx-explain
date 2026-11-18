@@ -37,7 +37,8 @@ export async function incomeRead(target, days = 30) {
     if (l) logs.push(...l);
   }
   // A transfer the agent's own wallet started (a withdrawal, refund or claim from a vault, jar or escrow) is its own money
-  // coming back, whatever contract the USDG moved from: label it by who sent the transaction, not by the token's sender.
+  // coming back, or a claim it made, whatever contract the USDG moved from: label it by who sent the transaction, not by the
+// token's sender, and never count it as outside pay.
   const hashes = [...new Set(logs.map(l => l.transactionHash))], starter = new Map();
   for (let i = 0; i < hashes.length; i += 50) { const txs = await rpc(hashes.slice(i, i + 50).map(h => ['eth_getTransactionByHash', [h]])); txs.forEach((t, j) => t && starter.set(hashes[i + j], t.from.toLowerCase())); }
   const by = new Map();
@@ -53,7 +54,7 @@ export async function incomeRead(target, days = 30) {
   const flags = [];
   if (sum('own')) flags.push(`${sum('own')} USDG came from the agent's own wallets: not income`);
   if (sum('loan')) flags.push(`${sum('loan')} USDG were loans: not income`);
-  if (sum('withdrawal')) flags.push(`${sum('withdrawal')} USDG were the agent's own withdrawals, refunds or claims from contracts (it sent those transactions): not income`);
+  if (sum('withdrawal')) flags.push(`${sum('withdrawal')} USDG arrived in transactions the agent's own wallet sent (withdrawals, refunds, claims or sales through contracts): not outside pay. Earned fees or escrow it claimed are income; its own deposits coming back are not. A funder trace tells which`);
   if (topShare >= 50) flags.push(`one outside payer is ${topShare}% of outside income`);
   return {chainId: 4663, agentId, wallet, days, window: {fromBlock: Number(from), toBlock: Number(latest)},
     income: {outsideUsdg: sum('outside'), outsidePayers: n('outside')}, notIncome: {ownUsdg: sum('own'), withdrawalUsdg: sum('withdrawal'), loanUsdg: sum('loan'), swapUsdg: sum('swap')},
