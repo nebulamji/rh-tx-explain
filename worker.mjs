@@ -377,6 +377,9 @@ const catWallets = new Map([['1', CAT1_WALLET]]);
 // Base USDC is paid to the Cat's holder, not its 6551 wallet (that wallet exists on Robinhood Chain only), and only when the
 // holder is a plain wallet: the same key holds that address on Base. Settled by PayAI's keyless facilitator.
 const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', BASE_FACILITATOR = 'https://facilitator.payai.network', catHolders = new Map();
+// Solana USDC, also settled by PayAI (its feePayer sponsors the transaction). One house Solana wallet receives for every Cat;
+// the paying Cat is named in the response so its income list can credit it. Its USDC token account exists, as the x402 SVM scheme requires.
+const SOL_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', SOL_PAYTO = 'BifYmwXuP9jBY4YZSACwcNAhcNabKcxzgkMxCUJZq8gL', SOL_FEEPAYER = 'CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww', SOL_V2 = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 async function catHolderEOA(n) {
   if (catHolders.has(n)) return catHolders.get(n);
   const [owner] = await rpcBatch([['eth_call', [{to: GENESIS, data: '0x6352211e' + BigInt(n).toString(16).padStart(64, '0')}, 'latest']]]);
@@ -522,25 +525,26 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   const base = reqOf(url.origin + url.pathname + url.search), requirement = seller ? {...base, payTo: seller, extra: {name: base.extra.name, version: base.extra.version}} : base;
   const holder = await catHolderEOA(cat || '1').catch(() => null);
   const baseReq = holder ? {...requirement, network: 'base', payTo: holder, asset: BASE_USDC, extra: {name: 'USD Coin', version: '2'}} : null, base2 = baseReq && {...v2Of(baseReq), network: 'eip155:8453'};
+  const solReq = {...requirement, network: 'solana', payTo: SOL_PAYTO, asset: SOL_USDC, extra: {feePayer: SOL_FEEPAYER}}, sol2 = {...v2Of(solReq), network: SOL_V2};
   const req2 = v2Of(requirement), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
-  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, accepts: [requirement, {...requirement, network: 'eip155:' + CHAIN_ID}, ...(baseReq ? [baseReq] : [])]}), {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: requirement.resource, description: requirement.description, mimeType: 'application/json'}, accepts: [req2, ...(base2 ? [base2] : [])]})}});
+  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, accepts: [requirement, {...requirement, network: 'eip155:' + CHAIN_ID}, ...(baseReq ? [baseReq] : []), solReq]}), {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: requirement.resource, description: requirement.description, mimeType: 'application/json'}, accepts: [req2, ...(base2 ? [base2] : []), sol2]})}});
   if (!header) return offer('Payment required');
   let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return offer('Bad payment header'); }
-  const net = payload.accepted?.network ?? payload.network ?? '', onBase = net === 'base' || net === 'eip155:8453';
+  const net = payload.accepted?.network ?? payload.network ?? '', onBase = net === 'base' || net === 'eip155:8453', onSol = net === 'solana' || net === SOL_V2;
   if (onBase && !baseReq) return offer('This Cat takes Base USDC only when its holder is a plain wallet; pay on Robinhood Chain');
-  const isV2 = payload.x402Version === 2 || /^eip155:/.test(net), chosen = onBase ? baseReq : requirement, facilitator = onBase ? BASE_FACILITATOR : FACILITATOR;
-  const body = JSON.stringify(isV2 ? {x402Version: 2, paymentPayload: payload, paymentRequirements: onBase ? base2 : req2} : {x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: chosen});
+  const isV2 = payload.x402Version === 2 || /^(eip155|solana):/.test(net), chosen = onSol ? solReq : onBase ? baseReq : requirement, facilitator = onSol || onBase ? BASE_FACILITATOR : FACILITATOR;
+  const body = JSON.stringify(isV2 ? {x402Version: 2, paymentPayload: payload, paymentRequirements: onSol ? sol2 : onBase ? base2 : req2} : {x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: chosen});
   // JazzCat #1's Robinhood sales settle through the Priors facilitator first (its merchant key), so each one is a receipt
   // on the Cat's Priors record and in its find_services listing; Toll stays the fallback and settles every other Cat.
   const via = async f => { const headers = {'content-type': 'application/json', ...(f === PRIORS_FACILITATOR ? {authorization: 'Bearer ' + PRIORS_KEY} : {})};
     const v = await fetch(f + '/verify', {method: 'POST', headers, body}).then(r => r.json()).catch(e => ({isValid: false, invalidReason: e.message})); return {f, headers, v}; };
-  let pick = !onBase && PRIORS_KEY && chosen.payTo.toLowerCase() === CAT1_WALLET.toLowerCase() ? await via(PRIORS_FACILITATOR) : null;
+  let pick = !onBase && !onSol && PRIORS_KEY && chosen.payTo.toLowerCase() === CAT1_WALLET.toLowerCase() ? await via(PRIORS_FACILITATOR) : null;
   if (!pick?.v.isValid) pick = await via(facilitator);
   if (!pick.v.isValid) return offer(pick.v.invalidReason || 'Payment not valid');
   let result; try { result = await work(); } catch (e) { return json({error: e.message}, 400); } // a failed read is never charged
   const st = await fetch(pick.f + '/settle', {method: 'POST', headers: pick.headers, body}).then(r => r.json()).catch(e => ({success: false, errorReason: e.message}));
   if (!st.success) return offer(st.errorReason || 'Settlement failed');
-  return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: chosen.payTo, network: onBase ? 'base' : 'robinhood'}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
+  return new Response(JSON.stringify({...result, payment: {tx: st.transaction, payer: st.payer, paidTo: chosen.payTo, network: onSol ? 'solana' : onBase ? 'base' : 'robinhood', cat: Number(cat || 1)}}), {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
 }
 
 // Raeto Pay: the same reads sold as Raeto builder tools (find_tools / use_tool). Unpaid call -> 402 with a Raeto price for
