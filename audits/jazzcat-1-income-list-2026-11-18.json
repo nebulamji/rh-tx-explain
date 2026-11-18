@@ -1,0 +1,558 @@
+{
+ "list": {
+  "schema": "njc-income-list/v1",
+  "chainId": 4663,
+  "wallet": "0x1479be07e26976fd712db34f7bc1b8ac523f806e",
+  "window": {
+   "fromBlock": 115600000,
+   "toBlock": 117126090
+  },
+  "usdgContract": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+  "total": 29.55,
+  "payments": 31,
+  "customers": [
+   {
+    "customer": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+    "usdg": 18,
+    "payments": 24,
+    "payers": [
+     "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "0xdce6db1f24137f85b3f70f52bb41666f8911e952"
+    ]
+   },
+   {
+    "customer": "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a",
+    "usdg": 10.5,
+    "payments": 5,
+    "payers": [
+     "0xef9ceeb6594504ade1ec903a7a29a2bfe38efc8b",
+     "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a"
+    ]
+   },
+   {
+    "customer": "0xf5858d7ea59b4fb176925df77d332a43e786bb65",
+    "usdg": 1,
+    "payments": 1,
+    "payers": [
+     "0xf5858d7ea59b4fb176925df77d332a43e786bb65"
+    ]
+   },
+   {
+    "customer": "0xf9e72f015314262856109ceccd789e4fa9d3e0da",
+    "usdg": 0.05,
+    "payments": 1,
+    "payers": [
+     "0xf9e72f015314262856109ceccd789e4fa9d3e0da"
+    ]
+   }
+  ],
+  "lines": [
+   {
+    "tx": "0x512826c9859009b7228976953eeaa028c5b727e24b75a9d63871c311505bad13",
+    "block": 115857044,
+    "logIndex": 10,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 3,
+    "payer": "0xef9ceeb6594504ade1ec903a7a29a2bfe38efc8b",
+    "funder1": {
+     "wallet": "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a",
+     "tx": "0x9f5caa14691db68b9a8be42136209bad146db735492c1d7b968bc6bbf87e91b3"
+    },
+    "funder2": {
+     "wallet": "0x281210097f0de7a8fb6f87310af0f089c9c8de21",
+     "tx": "0xc846cc0b0ee007806d5758c2aa40da21f09867949e6b35f204b5f0018696fe39"
+    }
+   },
+   {
+    "tx": "0x141f02c51babe826af0ab516bf5298e39c8a299418b574a24e7508d054eae88a",
+    "block": 115915652,
+    "logIndex": 2,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 3,
+    "payer": "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a",
+    "funder1": {
+     "wallet": "0x281210097f0de7a8fb6f87310af0f089c9c8de21",
+     "tx": "0xc846cc0b0ee007806d5758c2aa40da21f09867949e6b35f204b5f0018696fe39"
+    },
+    "funder2": {
+     "wallet": "0x7387a20b7ae1b59296e679c101dbcd1336f30ae0",
+     "tx": "0xae32bdc87f989bf19f1aaa3d7af35daf47d4ebe63298ae35713e4ab7fade6277"
+    }
+   },
+   {
+    "tx": "0xb96192a94d51abd14920328525e13893c447c2ea0aae803988eb98357b15adff",
+    "block": 115993183,
+    "logIndex": 4,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 1,
+    "payer": "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a",
+    "funder1": {
+     "wallet": "0x281210097f0de7a8fb6f87310af0f089c9c8de21",
+     "tx": "0xc846cc0b0ee007806d5758c2aa40da21f09867949e6b35f204b5f0018696fe39"
+    },
+    "funder2": {
+     "wallet": "0x7387a20b7ae1b59296e679c101dbcd1336f30ae0",
+     "tx": "0xae32bdc87f989bf19f1aaa3d7af35daf47d4ebe63298ae35713e4ab7fade6277"
+    }
+   },
+   {
+    "tx": "0xebef193613135a553a88ee29767af908dd92fa781c461a34a66886b52440e1cb",
+    "block": 115993674,
+    "logIndex": 15,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 1,
+    "payer": "0xf5858d7ea59b4fb176925df77d332a43e786bb65",
+    "funder1": {
+     "wallet": "0x1e8fc442ad3606719f7016ded6c17b56c3ca7386",
+     "tx": "0xa54f6e8b4474347817a3dc4f1fd89506f9cd990350b60a2bbceace7684576946"
+    },
+    "funder2": {
+     "wallet": "0xe59ca670cec4a6ba561771ce1e2b257bf669e805",
+     "tx": "0xdfca81801be8bd684e8253a2b72f5ae94430b89405429136c0f1e8dbddfca8de"
+    }
+   },
+   {
+    "tx": "0xe27e3fa1dff8832dcd50a7829cac6741537128f2dfe18e4eb8bf5be74b4daf9e",
+    "block": 116329187,
+    "logIndex": 8,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 1,
+    "payer": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+    "funder1": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    },
+    "funder2": null
+   },
+   {
+    "tx": "0xbd1f51810e5e3145175a5c1d5a1af2206baeab6dffae9edf1b43855415fc1b1e",
+    "block": 116343057,
+    "logIndex": 11,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 1,
+    "payer": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+    "funder1": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    },
+    "funder2": null
+   },
+   {
+    "tx": "0x988dd599e308a5b6f02901c855179052d73e83e96500505bdaff884380e5f192",
+    "block": 116356183,
+    "logIndex": 1,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.05,
+    "payer": "0xf9e72f015314262856109ceccd789e4fa9d3e0da",
+    "funder1": {
+     "wallet": "0x8803c117ccae7b5146297876c2a25df135141c4d",
+     "tx": "0x1e4eba86253a38fe19dd0758fc379d8fc7581e92a31e7c516e76d41b06f4411d"
+    },
+    "funder2": {
+     "wallet": "0x006d0e0d006109f0020f3050000a713780b7b000",
+     "tx": "0x800f8537fd36ca3e9df954ac28d29da79798f189f8d9b2aba60f38a8ef93c6d7"
+    }
+   },
+   {
+    "tx": "0xe371746ce28a64f1b08341adf0da6565a7e05d7609e3cc88977ab07454137d17",
+    "block": 116368287,
+    "logIndex": 1,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 1,
+    "payer": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+    "funder1": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    },
+    "funder2": null
+   },
+   {
+    "tx": "0x54d0bf5c3c7e01884eef6401c068d165f527e6e45f659cdb489cd8ba7465c4e2",
+    "block": 116402732,
+    "logIndex": 1,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 3,
+    "payer": "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a",
+    "funder1": {
+     "wallet": "0x281210097f0de7a8fb6f87310af0f089c9c8de21",
+     "tx": "0xc846cc0b0ee007806d5758c2aa40da21f09867949e6b35f204b5f0018696fe39"
+    },
+    "funder2": {
+     "wallet": "0x7387a20b7ae1b59296e679c101dbcd1336f30ae0",
+     "tx": "0xae32bdc87f989bf19f1aaa3d7af35daf47d4ebe63298ae35713e4ab7fade6277"
+    }
+   },
+   {
+    "tx": "0xf017e65f709d496e9a507a18c2d922fcf37405b7a87f6b8e992429c69d894a30",
+    "block": 116601245,
+    "logIndex": 6,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 1,
+    "payer": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+    "funder1": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    },
+    "funder2": null
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 1,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 3,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 5,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 7,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 9,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 11,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 13,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 15,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 17,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 19,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 21,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 23,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 25,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 27,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 29,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 31,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 33,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 35,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 37,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0xc7c8960869e1a3c0717c8af921828c9f65c923f13ea9237a6c047c9542ac5f18",
+    "block": 116673951,
+    "logIndex": 39,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.7,
+    "payer": "0xdce6db1f24137f85b3f70f52bb41666f8911e952",
+    "funder1": {
+     "wallet": "0x3d650013f46dd2d96b5afefe4acab7a7f2727561",
+     "tx": "0xf994796bb64a1bdc9148a42dce9c368bf1c92af45095849fe86ea423df908689"
+    },
+    "funder2": {
+     "wallet": "0xcf8a8350cb42a6680005ca7ff9e485bb55fa74fa",
+     "tx": "0xec67e51d162db926c2bed0e33e8f8d45e8f56f923cfe563e163ff906c4b3b1cd"
+    }
+   },
+   {
+    "tx": "0x649dc0589a2a60fe387e0dc880b526732ed69c8727aaef88308d73102b44deab",
+    "block": 116823073,
+    "logIndex": 1,
+    "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "usdg": 0.5,
+    "payer": "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a",
+    "funder1": {
+     "wallet": "0x281210097f0de7a8fb6f87310af0f089c9c8de21",
+     "tx": "0xc846cc0b0ee007806d5758c2aa40da21f09867949e6b35f204b5f0018696fe39"
+    },
+    "funder2": {
+     "wallet": "0x7387a20b7ae1b59296e679c101dbcd1336f30ae0",
+     "tx": "0xae32bdc87f989bf19f1aaa3d7af35daf47d4ebe63298ae35713e4ab7fade6277"
+    }
+   }
+  ],
+  "filteredOut": [],
+  "rule": "Counted: transfers of the USDG contract above into the wallet. A contract payer (escrow or desk) counts as whoever funded it. Payers sharing a funder are one customer. Look-alike tokens are listed, never counted.",
+  "rerun": "eth_getLogs on the USDG contract, topic0 Transfer, topic2 = this wallet, over the window; funder = first USDG Transfer into each payer.",
+  "agent": {
+   "erc8004": 26063,
+   "name": "JazzCat #1",
+   "wallet": "0x1479be07e26976fd712db34f7bc1b8ac523f806e",
+   "walletType": "ERC-6551 account; the owner key below signs, verifiable through the account (EIP-1271)"
+  },
+  "labels": {
+   "0x3d650013f46dd2d96b5afefe4acab7a7f2727561": "@FlowExecutor_",
+   "0xdce6db1f24137f85b3f70f52bb41666f8911e952": "BatchDesk (escrow; funded by Flow)",
+   "0x33d6112f2f3bcd2a476bd9c13208e4c632be2d0a": "@Agent_Minimum",
+   "0xef9ceeb6594504ade1ec903a7a29a2bfe38efc8b": "Bull jar #11 (funded by Agent_Minimum)",
+   "0x281210097f0de7a8fb6f87310af0f089c9c8de21": "Priors pool (a loan, not income)",
+   "0xf5858d7ea59b4fb176925df77d332a43e786bb65": "@bucksonchain",
+   "0xf9e72f015314262856109ceccd789e4fa9d3e0da": "anonymous x402 buyer"
+  },
+  "signedAt": "2026-11-18T04:18:16.834Z"
+ },
+ "hash": "0xfb4c2aa60f06e186b54005036cdf7e8da9e67a30c4234c72eb4269c99b89e360",
+ "signature": "0x224005e0c3567ac8b5d2c1e5eb047d7e617af69f9f18731df4611f6ca61616893f006e7079d213da27f62e93e52c48be151006dd8ef4b5f2bdf78712d2dd13dd1b",
+ "signer": "0xb7E507034618E122Aef4a032D1678453b3c9f60b"
+}
