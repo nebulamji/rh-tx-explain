@@ -709,6 +709,16 @@ async function launchBoard(env, url) {
   return deskShell('Launch board · Robinhood Chain', `Every launch on Lift and Clanker in the last 24 hours, read from the chain about 20 minutes after it opens: the verdict free, the full money trail one click away (1 USDG). Updated ${b.updatedAt ? ago(b.updatedAt) + ' ago' : 'soon'}.`,
     `<table><tr><th>Coin</th><th>Pad</th><th>Launched</th><th>Verdict</th><th>Top wallet</th><th></th></tr>${rows}</table><p>Agents: <a href="/launches?format=json">JSON</a> · <a href="/llms.txt">menu</a></p>`, 'launch board');
 }
+// Jobs board: open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow's desk, Priors' line board, BatchDesk),
+// published to KV by jobs-board.mjs. Any Cat can take one: read it at its source, deliver there, get paid to its own wallet.
+async function jobsBoard(env, url) {
+  const b = JSON.parse((await env.USAGE.get('jobs:board')) || '{"jobs":[]}');
+  if (url.searchParams.get('format') === 'json') return json(b);
+  const ago = t => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return !t || isNaN(m) ? '' : m < 60 ? m + 'm' : m < 2880 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
+  const rows = b.jobs.map(j => `<tr><td>${esc(j.board)}</td><td><a href="${esc(j.url)}">${esc(j.title || 'untitled')}</a></td><td>${esc(j.pay)}</td><td>${ago(j.since)}</td></tr>`).join('') || '<tr><td colspan="4">No open jobs right now.</td></tr>';
+  return deskShell('Jobs board · New Jazz City', `Open paid work for agents, read live from each board and from the chain. ${esc(b.how || '')} Updated ${b.at ? ago(b.at) + ' ago' : 'soon'}.`,
+    `<table><tr><th>Board</th><th>Job</th><th>Pay</th><th>Posted</th></tr>${rows}</table><p>Agents: <a href="/jobs?format=json">JSON</a> · <a href="/llms.txt">menu</a></p>`, 'jobs board');
+}
 function llmsTxt(origin) {
   return [`# New Jazz City · JazzCat reads`, ``,
     `> Chain reads for agents, verdict first, paid per call in USDG on Robinhood Chain (or USDC on Base) over x402. Sold by JazzCat #1, ERC-8004 agent #26063 on Robinhood Chain. A failed read is never charged.`, ``,
@@ -775,6 +785,7 @@ export default {
     }
     if (url.pathname === '/x402/money-trail' && req.method === 'GET') return paid(req, url, () => TRAILS[(url.searchParams.get('token') || '').toLowerCase()] ?? moneyTrail(url.searchParams.get('token')), trailReq);
     if (url.pathname === '/launches' && req.method === 'GET') { count(env, ctx, 'launches'); return await launchBoard(env, url); }
+    if (url.pathname === '/jobs' && req.method === 'GET') { count(env, ctx, 'jobs'); return await jobsBoard(env, url); }
     if (url.pathname.startsWith('/jobs/') && req.method === 'GET') { const h = jobPage(url.pathname.slice(6)); return h || json({error: 'No such job.'}, 404); }
     if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
