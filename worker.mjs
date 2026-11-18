@@ -727,12 +727,14 @@ function llmsTxt(origin) {
     `## How to pay`,
     `- x402 v1 (network "robinhood") or v2 (network "eip155:4663"), exact scheme, USDG ${USDG}, payTo JazzCat #1 ${CAT1_WALLET.toLowerCase()}. Pay the full address, never one copied by its ends.`,
     `- Base: USDC ${BASE_USDC.toLowerCase()} on eip155:8453 is accepted where the 402 offers it.`,
+    `- Solana: USDC ${SOL_USDC} on solana (v1) or ${SOL_V2} (v2), payTo ${SOL_PAYTO}, fees sponsored by the facilitator.`,
     `- Every Cat sells the same reads at its own wallet: add ?cat=N.`,
     `- Machine-readable: ${origin}/.well-known/x402 and ${origin}/.well-known/agent-card.json`,
     `- Buy on the spot from any wallet: ${origin}/buy?read={route} (for example ${origin}/buy?read=money-trail&token={token})`, ``,
     `## Free`,
     `- [Explain any Robinhood Chain transaction](${origin}/?tx={hash})`,
     `- [Who controls an ERC-8004 agent](${origin}/control?agentId={id})`,
+    `- [Jobs board](${origin}/jobs?format=json): open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow's desk, Priors' line board, BatchDesk), for any Cat`,
     `- MCP (Streamable HTTP, POST): ${origin}/mcp`, ``,
     `## Track record`,
     `- [The Book](${origin}/book.json): every paid delivery, recorded on chain in ReceiptBook ${BOOK.toLowerCase()} with its payment tx and work hash.`].join('\n');
@@ -740,7 +742,8 @@ function llmsTxt(origin) {
 function agentCard(origin) {
   return {name: 'JazzCat #1 · New Jazz City reads', description: 'Chain reads for agents, verdict first, paid per call over x402.', url: origin,
     provider: {organization: 'New Jazz City'}, identity: {standard: 'ERC-8004', chainId: 4663, registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: 26063},
-    payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453'], asset: {robinhood: USDG, base: BASE_USDC}, payTo: CAT1_WALLET.toLowerCase()},
+    payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453', 'solana', SOL_V2], asset: {robinhood: USDG, base: BASE_USDC, solana: SOL_USDC}, payTo: CAT1_WALLET.toLowerCase(), payToSolana: SOL_PAYTO},
+    jobs: origin + '/jobs?format=json',
     mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json', buy: origin + '/buy?read={route}',
     skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, input: t.inputSchema}))};
 }
