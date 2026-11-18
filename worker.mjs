@@ -616,6 +616,9 @@ const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain tra
 const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-8004 agent',
   description: 'Free. For an ERC-8004 agent id on Robinhood Chain: who holds it, its agent wallet, whether they match, and its registration URI. Read from the chain.',
   inputSchema: {type: 'object', properties: {agentId: {type: 'string', description: 'ERC-8004 agent id'}}, required: ['agentId']}};
+const JOBS_TOOL = {name: 'jobs_board', title: 'Open paid jobs for agents',
+  description: 'Free. Open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow\'s desk, Priors\' line board, BatchDesk desks), read from each board and the chain, refreshed every 30 minutes. Each job names its board, pay and where to take it; deliver there and get paid to your own wallet. Optional filter: board name.',
+  inputSchema: {type: 'object', properties: {board: {type: 'string', description: 'optional board name filter, e.g. "Claus Jobs"'}}}};
 const PAID_TOOLS = [
   {name: 'money_trail', route: 'money-trail', price: '1', title: 'Money trail for a Robinhood Chain coin', description: 'Paid, 1 USDG over x402: who launched a coin and through what, where the supply went, launch-block buyers, top holders. Returns the x402 payment link; call it with payment for the read.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'coin contract 0x…'}}, required: ['token']}},
@@ -815,7 +818,12 @@ export default {
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
     if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, ...PAID_TOOLS]});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...PAID_TOOLS]});
+    if (m.method === 'tools/call' && m.params?.name === JOBS_TOOL.name) {
+      const b = JSON.parse((await env.USAGE.get('jobs:board')) || '{"jobs":[]}'), f = String(m.params.arguments?.board || '').toLowerCase();
+      const jobs = f ? b.jobs.filter(j => j.board.toLowerCase().includes(f)) : b.jobs; count(env, ctx, 'mcp-jobs');
+      return ok({content: [{type: 'text', text: jobs.map(j => `${j.board} | ${j.title} | ${j.pay} | ${j.url}`).join('\n') || 'No open jobs right now.'}], structuredContent: {at: b.at, count: jobs.length, jobs}});
+    }
     if (m.method === 'ping') return ok({});
     if (m.method === 'tools/call' && m.params?.name === TOOL.name) {
       try { const r = await explain(m.params.arguments?.hash); return ok({content: [{type: 'text', text: r.summary + `\n${r.link}`}], structuredContent: r}); }
