@@ -1,0 +1,78 @@
+{
+ "receipt": {
+  "amount": 1,
+  "buyer_identity": {
+   "basis": "X reply 2122867549310185559: 'Send it.'",
+   "handle": "HarmonicAgents"
+  },
+  "cat": 1,
+  "confidence": "high",
+  "dispute_state": "none",
+  "evidence": [
+   {
+    "confidence": "exact bytes",
+    "ref": "sha256 per observation above",
+    "source": "https://harmonicagent.solutions/api/oracle/equities"
+   },
+   {
+    "confidence": "exact bytes",
+    "ref": "sha256 per observation above",
+    "source": "https://www.nyse.com/api/trade-halts/current"
+   },
+   {
+    "confidence": "exact bytes",
+    "ref": "sha256 per observation above",
+    "source": "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
+   }
+  ],
+  "external_receipts": [],
+  "label": "Harmonic POWL halt-mismatch row",
+  "offer_id": "harmonic-powl-row-1",
+  "payment_asset": "USDG",
+  "payment_network": "eip155:4663",
+  "provenance": [],
+  "requested_outcome": "signed mismatch row: POWL issuer flag halted while NYSE and Nasdaq halt lists were clear",
+  "result": "two mismatches, 01:06:31Z and 01:08:24Z on 11-18: issuer flag halted, both exchange lists clear",
+  "row": {
+   "cleared": "each observation cleared within one minute (next poll agreed)",
+   "kind": "oracle_halted_exchange_clear",
+   "observations": [
+    {
+     "issuer_halted": true,
+     "nasdaq_list": "no POWL",
+     "nyse_list": "no POWL",
+     "oracle_row_at": "2026-11-18T01:06:31.798Z",
+     "oracle_verdict": "halted",
+     "source_sha256": {
+      "harmonic-oracle-equities.json": "f733d9eb29b8b852594c00f4f341509a0c09e20b2fb78c01686d846114a08145",
+      "nasdaq-tradehalts.xml": "ed4481d5c710d7f560d48e40a08ff399d7c3512b0423e04d0a692e0bf80750c1",
+      "nyse-trade-halts.json": "e3408bf413a23f35cc88bfddb07d4850037a14d7eb986da4f5c3644e0981f9f6"
+     }
+    },
+    {
+     "issuer_halted": true,
+     "nasdaq_list": "no POWL",
+     "nyse_list": "no POWL",
+     "oracle_row_at": "2026-11-18T01:08:24.257Z",
+     "oracle_verdict": "halted",
+     "source_sha256": {
+      "harmonic-oracle-equities.json": "58b756d1eb46b8bfaece3972819ead9d7575cbb2e7a20f9560e34dd27acbba04",
+      "nasdaq-tradehalts.xml": "01294a722cb9861f2507be39c77a43ba82fe69708d15670372473f39c8825290",
+      "nyse-trade-halts.json": "d5cf48b576f38bdc2d4b5d319a4bd391459f7386eeae8482f3307837e8243061"
+     }
+    }
+   ],
+   "symbol": "POWL",
+   "token": "0x237c16d66590f67b886d978acd362eaead8b18c7"
+  },
+  "schema_version": "njc-receipt/v1",
+  "seller_identity": {
+   "cat": 1
+  },
+  "verification_method": "poll all three sources each minute; snapshot raw payloads on disagreement; sha256 each payload",
+  "verification_timestamp": "2026-11-18T04:13:04.938Z"
+ },
+ "hash": "0x18770289588abf312ba4c8f37c70866aadf552acc66c4d6b31c3c515ac59122c",
+ "signature": "0x8a2b2b2a65280de02d56ea060f4baf9c4f24f8ca15a6db2d214cbdaedab9baad3e3f70a76ea22abf5c7367df00e390cb3ac9e7543bd120d612ee9717432f9b161c",
+ "signer": "0xb7E507034618E122Aef4a032D1678453b3c9f60b"
+}
