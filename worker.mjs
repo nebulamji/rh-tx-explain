@@ -209,6 +209,16 @@ const trailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_
 const baseTrailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_PRICE,
   description: "Base launch read for a recent coin (Clanker and others, up to ~7 days old): who launched it and through what, where the supply sits (burn, pool, wallets), who bought in the first blocks, flags. JazzCat #1, independent: read from Base.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/base-trail?token={token}', queryParams: {token: {type: 'string', description: 'ERC-20 address on Base'}}}, output: {type: 'object'}}});
+// Base verdict: the flags line of the Base launch read, priced for bots that check before every buy; the full trail is the upsell.
+const VERDICT_PRICE = '30000';
+const baseVerdictReq = resource => ({...ledgerReq(resource), maxAmountRequired: VERDICT_PRICE,
+  description: "Base token verdict for a recent coin (Clanker and others, up to ~7 days old): flags or no flags from its launch read (one wallet's share, top-wallet concentration, snipers in the first blocks, repeat mints), burned share, launcher. 0.03 USDC. Full trail at /x402/base-trail. JazzCat #1, independent: read from Base.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/base-verdict?token={token}', queryParams: {token: {type: 'string', description: 'ERC-20 address on Base'}}}, output: {type: 'object'}}});
+async function baseVerdict(token, origin) {
+  const r = await baseTrail(token), walletTop = r.topHolders.filter(h => h.kind === 'wallet')[0];
+  return {chain: 'base', chainId: 8453, token: r.token, symbol: r.symbol, verdict: r.verdict, flags: r.flags, burnedPct: r.burnedPct, topWalletPct: walletTop?.pctOfSupply ?? 0,
+    launcher: r.launch.launcher, launchBlock: r.launch.block, fullRead: `${origin}/x402/base-trail?token=${r.token}`, by: r.by};
+}
 const solTrailReq = resource => ({...ledgerReq(resource), maxAmountRequired: TRAIL_PRICE,
   description: "Solana coin trail: what the coin claims, mint and freeze authority, top holders outside pools, the creator's own holding, and where its creator fees route (pump.fun fee-sharing config and creator vaults, read on chain). JazzCat #1, independent.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/sol-trail?mint={mint}', queryParams: {mint: {type: 'string', description: 'Solana token mint'}}}, output: {type: 'object'}}});
@@ -628,6 +638,8 @@ const PAID_TOOLS = [
     inputSchema: {type: 'object', properties: {contract: {type: 'string', description: 'contract address 0x…'}}, required: ['contract']}},
   {name: 'sol_trail', route: 'sol-trail', price: '1', title: 'Solana coin trail', description: 'Paid, 1 USDG over x402: for a Solana coin (pump.fun and others): its claim, authorities, holders outside pools, the creator holding, and where creator fees route (fee-sharing config + creator vaults). Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {mint: {type: 'string', description: 'Solana token mint'}}, required: ['mint']}},
+  {name: 'base_verdict', route: 'base-verdict', price: '0.03', title: 'Base token verdict', description: 'Paid, 0.03 USDC/USDG over x402: flags or no flags for a recent Base coin from its launch read (wallet concentration, snipers, repeat mints, burned share, launcher). Returns the x402 payment link; the full trail is base_trail.',
+    inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'ERC-20 address on Base'}}, required: ['token']}},
   {name: 'base_trail', route: 'base-trail', price: '1', title: 'Base launch read', description: 'Paid, 1 USDG over x402: for a recent coin on Base (Clanker and others): who launched it, where the supply sits (burn, pool, wallets), first-block buyers, flags. Returns the x402 payment link.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'ERC-20 address on Base'}}, required: ['token']}},
   {name: 'halt_check', route: 'halt-check', price: '0.25', title: 'Is a Stock Token\'s stock halted? (exchange lists, not the issuer feed)', description: 'Paid, 0.25 USDG over x402: the exchanges\' own halt lists (NYSE + Nasdaq) for a ticker, reason, since and resumption, next to the issuer-relayed oracle row, with whether they agree. Returns the x402 payment link.',
@@ -646,6 +658,7 @@ const PAID_RUN = {
   'line-read': [q => lineRead(q.get('agentId'), q.get('vault'), q.get('wallet')), r => lineReq(r)],
   'transfer-read': [q => transferRead(q.get('contract')), r => transferReq(r)],
   'sol-trail': [q => solTrail(q.get('mint')), r => solTrailReq(r)],
+  'base-verdict': [q => baseVerdict(q.get('token'), 'https://njc-tx-explain.departmentofjazz.workers.dev'), r => baseVerdictReq(r)],
   'base-trail': [q => baseTrail(q.get('token')), r => baseTrailReq(r)],
   'halt-check': [q => haltCheck(q.get('symbol')), r => haltReq(r)],
   'ledger': [q => ledger(q.get('address'), q.get('days')), r => ledgerReq(r)],
@@ -797,10 +810,11 @@ export default {
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
-      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/tba-read?account={account}&chain={chain}', '2'], ['/x402/poison-check?address={address}', '1'], ['/x402/income-read?agent={agent}&days={days}', '1'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/sol-trail?mint={mint}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
+      resources: [['/x402/money-trail?token={token}', '1'], ['/x402/base-verdict?token={token}', '0.03'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '1'], ['/x402/transfer-read?contract={contract}', '2'], ['/x402/tba-read?account={account}&chain={chain}', '2'], ['/x402/poison-check?address={address}', '1'], ['/x402/income-read?agent={agent}&days={days}', '1'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '1'], ['/x402/sol-trail?mint={mint}', '1'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
         accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
       quote: url.origin + '/quote?token={token}&usd={usd}&chain=robinhood'});
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
+    if (url.pathname === '/x402/base-verdict' && req.method === 'GET') return paid(req, url, () => baseVerdict(url.searchParams.get('token'), url.origin), baseVerdictReq);
     if (url.pathname === '/x402/base-trail' && req.method === 'GET') return paid(req, url, () => baseTrail(url.searchParams.get('token')), baseTrailReq);
     if (url.pathname === '/x402/sol-trail' && req.method === 'GET') return paid(req, url, () => solTrail(url.searchParams.get('mint')), solTrailReq);
     if (url.pathname === '/x402/transfer-read' && req.method === 'GET') return paid(req, url, () => transferRead(url.searchParams.get('contract')), transferReq);
