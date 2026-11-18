@@ -359,6 +359,7 @@ const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/transfer-read', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/tba-read', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/poison-check', version: '1'},
+    {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/income-read', version: '1'},
     {name: 'llms', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/llms.txt', version: '1'},
     {name: 'x402', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/halt-check', version: '1'},
     {name: 'receipts', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/book.json', version: '1'},
