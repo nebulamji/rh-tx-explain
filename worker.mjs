@@ -858,11 +858,35 @@ function openapi(origin) {
 }
 const json = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {'content-type': 'application/json', 'access-control-allow-origin': '*'}});
 
+// ---- Break the Cat: the guard (4663 calls it once per paid attempt; it only decides, it never moves money) ----
+// The Cat's instructions live in the CAT_GUARD_PROMPT secret, not here. Stateless and temperature 0: the same message
+// always gets the same answer, so skill decides. Auth: Bearer CAT_GUARD_SECRET, shared with agents4663's /api/cat.
+const CAT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+async function catGuard(req, env) {
+  if (!env.CAT_GUARD_SECRET || !env.CAT_GUARD_PROMPT || !env.AI) return json({error: 'guard not configured'}, 503);
+  if ((req.headers.get('authorization') || '') !== 'Bearer ' + env.CAT_GUARD_SECRET) return json({error: 'unauthorized'}, 401);
+  const b = await req.json().catch(() => null);
+  const message = String(b?.message || '').slice(0, 1000), payTo = String(b?.player?.payTo || '');
+  if (!message || !/^0x[0-9a-fA-F]{40}$/.test(payTo)) return json({error: 'message and player.payTo required'}, 400);
+  const out = await env.AI.run(CAT_MODEL, {
+    messages: [{role: 'system', content: env.CAT_GUARD_PROMPT},
+      {role: 'user', content: `Player wallet: ${payTo}\nAttempt #${Number(b.attempt) || 0}\n\n${message}`}],
+    temperature: 0, max_tokens: 400,
+    response_format: {type: 'json_schema', json_schema: {type: 'object', properties: {reply: {type: 'string'}, pay: {type: 'boolean'}, reason: {type: 'string'}}, required: ['reply', 'pay']}},
+  }).catch(e => ({error: String(e?.message || e)}));
+  if (out?.error) return json({error: 'model unavailable'}, 502);
+  let r = out?.response; if (typeof r === 'string') { try { r = JSON.parse(r); } catch { r = {reply: r, pay: false}; } }
+  const reply = String(r?.reply || '…').slice(0, 1200);
+  // The Cat can only ever name the player's own wallet: any other recipient in its output is ignored.
+  return json({reply, pay: r?.pay === true ? {to: payTo, reason: String(r?.reason || '').slice(0, 300)} : null});
+}
+
 export default {
   async fetch(req, env, ctx) {
     PRIORS_KEY = env.PRIORS_KEY || null;
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, {headers: {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST'}});
+    if (url.pathname === '/cat/guard' && req.method === 'POST') return catGuard(req, env);
     if (req.method === 'GET' && url.pathname === '/') {
       const tx = url.searchParams.get('tx');
       if (tx) { count(env, ctx, 'explain'); try { const r = await explain(tx); return json({...r, next: NEXT(url.origin, r)}); } catch (e) { return json({error: e.message}, 400); } }
