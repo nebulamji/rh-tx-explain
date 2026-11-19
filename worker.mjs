@@ -381,13 +381,15 @@ async function portfolioWatch(address) {
   const [flow, poison] = await Promise.all([ledger(a, 7).catch(e => ({error: e.message})), poisonCheck(a).catch(e => ({error: e.message}))]);
   // tokens this wallet touched over about 11 days of Transfer logs, USDG always included
   const touched = [USDG];
-  const [head] = await rpcBatch([['eth_blockNumber', []]]); const latest = BigInt(head), from = latest > 9000000n ? latest - 9000000n : 0n;
-  const hx = x => '0x' + x.toString(16);
-  const [inLogs, outLogs] = await rpcBatch([['eth_getLogs', [{fromBlock: hx(from), toBlock: 'latest', topics: [T.transfer, null, pad(a)]}]], ['eth_getLogs', [{fromBlock: hx(from), toBlock: 'latest', topics: [T.transfer, pad(a)]}]]], OFFICIAL);
-  for (const l of [...(inLogs || []), ...(outLogs || [])]) if (l.topics.length === 3) touched.push(l.address.toLowerCase());
-  const tokens = [...new Set(touched)].slice(0, 40);
+  // Address-less log queries are capped at 30,000 blocks per call on Robinhood Chain, so read 24 windows (about a day).
+  const [head] = await rpcBatch([['eth_blockNumber', []]]); const latest = BigInt(head), hx = x => '0x' + x.toString(16), W = 29999n, q = [];
+  for (let i = 0n, to = latest; i < 12n && to > W; i++, to -= W + 1n) { const r = {fromBlock: hx(to - W), toBlock: hx(to)}; q.push(['eth_getLogs', [{...r, topics: [T.transfer, null, pad(a)]}]], ['eth_getLogs', [{...r, topics: [T.transfer, pad(a)]}]]); }
+  let windowsRead = 0;
+  for (let i = 0; i < q.length; i += 4) for (const logs of await rpcBatch(q.slice(i, i + 4), OFFICIAL).catch(() => [])) { if (logs) windowsRead++; for (const l of logs || []) if (l.topics.length === 3) touched.push(l.address.toLowerCase()); }
+  const tokens = [...new Set(touched)].slice(0, 30);
   const calls = tokens.flatMap(t => [['eth_call', [{to: t, data: '0x70a08231' + pad(a).slice(2)}, 'latest']], ['eth_call', [{to: t, data: '0x95d89b41'}, 'latest']], ['eth_call', [{to: t, data: '0x313ce567'}, 'latest']]]);
-  const res = await rpcBatch([...calls, ['eth_getBalance', [a, 'latest']]]);
+  const res = []; for (let i = 0; i < calls.length; i += 30) res.push(...await rpcBatch(calls.slice(i, i + 30)).catch(() => calls.slice(i, i + 30).map(() => null)));
+  res.push(...await rpcBatch([['eth_getBalance', [a, 'latest']]]));
   const holdings = [];
   tokens.forEach((t, i) => { const bal = BigInt(res[i * 3] && res[i * 3] !== '0x' ? res[i * 3] : '0x0'); if (bal === 0n) return;
     const dec = Number(BigInt(res[i * 3 + 2] && res[i * 3 + 2] !== '0x' ? res[i * 3 + 2] : '0x12')); holdings.push({token: t, symbol: decodeString(res[i * 3 + 1]) || '?', balance: fmt(bal, dec)}); });
@@ -407,7 +409,7 @@ async function portfolioWatch(address) {
   }
   if (!flow.error && Number(flow.usdgOut) > Number(flow.usdgIn) * 2 && Number(flow.usdgOut) > 10) alerts.push({level: 'medium', what: `USDG out (${flow.usdgOut}) is more than twice USDG in (${flow.usdgIn}) this week`, why: 'Spending is outrunning income; at this pace the balance runs down.', action: 'Check the largest outgoing counterparties below.'});
   return {address: a, chainId: CHAIN_ID, generatedAt: new Date().toISOString(), eth, holdings, usdg7d: flow.error ? {error: flow.error} : {in: flow.usdgIn, out: flow.usdgOut, balance: flow.balanceNow, topCounterparties: (flow.counterparties || []).slice(0, 5)},
-    alerts, checkedContracts: checked, summary: alerts.length ? `${alerts.length} alert(s): ` + alerts.map(x => x.what).join('; ') : 'No risk alerts for this wallet in the window.',
+    alerts, checkedContracts: checked, tokensSeen: tokens.length, windowsRead, summary: alerts.length ? `${alerts.length} alert(s): ` + alerts.map(x => x.what).join('; ') : 'No risk alerts for this wallet in the window.',
     note: 'Read only: suggests actions, never executes trades. Poll it hourly; a new alert is the notification.', by: 'JazzCat #1 (agent #26063), New Jazz City: read from Robinhood Chain'};
 }
 
