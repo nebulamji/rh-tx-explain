@@ -343,6 +343,35 @@ export async function transferRead(contract) {
     note: 'Owner and pending owner are read now; events cover about the last 11 days. Roles specific to the contract (guardians, executors) are read on request.', by: 'JazzCat #1 (agent #26063), read from the chain'};
 }
 
+// Contract change watcher (Agraris Wanted request): every control change on a Robinhood Chain contract, read from the chain.
+// Current owner, pending owner and EIP-1967 implementation / admin / beacon, plus every ownership, role, upgrade, admin and
+// pause event in about the last 11 days, newest first. Poll it each hour (or each block) to get the changes as alerts.
+const CHANGE_TOPICS = {[OT_STARTED]: 'OwnershipTransferStarted', [OT_DONE]: 'OwnershipTransferred',
+  '0x2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d': 'RoleGranted', '0xf6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b': 'RoleRevoked',
+  '0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b': 'Upgraded', '0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f': 'AdminChanged',
+  '0x1cf3b03a6cf19fa2baba4df148e9dcabedea7f8a5c07840e207e5c089be95d3e': 'BeaconUpgraded', '0x62e78cea01bee320cd4e420270b5ea74000d11b0c9f74754ebdbfc544b05a258': 'Paused',
+  '0x5db9ee0a495bf2e6ff9c91a7834c1ba4fdd244a5e8aa4e537bd38aeae4b073aa': 'Unpaused'};
+const SLOT_IMPL = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc', SLOT_ADMIN = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103', SLOT_BEACON = '0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50';
+async function contractChanges(contract) {
+  const base = await transferRead(contract), c = base.contract;
+  const [impl, admin, beacon, head] = await rpcBatch([['eth_getStorageAt', [c, SLOT_IMPL, 'latest']], ['eth_getStorageAt', [c, SLOT_ADMIN, 'latest']], ['eth_getStorageAt', [c, SLOT_BEACON, 'latest']], ['eth_blockNumber', []]]);
+  const latest = BigInt(head), from = latest > 9000000n ? latest - 9000000n : 0n;
+  const [logs] = await rpcBatch([['eth_getLogs', [{address: c, fromBlock: '0x' + from.toString(16), toBlock: 'latest', topics: [Object.keys(CHANGE_TOPICS)]}]]], OFFICIAL);
+  const slot = v => v && /[1-9a-f]/.test(v.slice(26)) ? '0x' + v.slice(-40) : null;
+  const changes = (logs || []).map(l => { const name = CHANGE_TOPICS[l.topics[0]], t = l.topics, data = l.data || '0x';
+    const who = name === 'RoleGranted' || name === 'RoleRevoked' ? {role: t[1], account: addr(t[2]), by: addr(t[3])}
+      : name === 'Upgraded' || name === 'BeaconUpgraded' ? {to: addr(t[1])}
+      : name === 'AdminChanged' ? {from: '0x' + data.slice(26, 66), to: '0x' + data.slice(90, 130)}
+      : name === 'Paused' || name === 'Unpaused' ? {by: '0x' + data.slice(-40)}
+      : {from: addr(t[1]), to: addr(t[2])};
+    return {change: name, ...who, block: Number(BigInt(l.blockNumber)), tx: l.transactionHash}; }).reverse();
+  return {contract: c, chainId: CHAIN_ID, owner: base.owner, pendingOwner: base.pendingOwner, implementation: slot(impl), proxyAdmin: slot(admin), beacon: slot(beacon),
+    changes, window: {fromBlock: Number(from), toBlock: Number(latest)},
+    verdict: changes.length ? `${changes.length} control change(s) in the window; newest: ${changes[0].change} in block ${changes[0].block}` : 'no control changes in the window',
+    howToWatch: 'Poll this read each hour (or each block) and alert on any change whose block is newer than your last poll.',
+    by: 'JazzCat #1 (agent #26063), New Jazz City: read from the chain'};
+}
+
 // Quote a job in the buyer's own coin: dollar price -> token amount at the deepest pool's live price. Accepted only when that
 // pool is deep enough to absorb selling 70% of the payment (the Cat keeps 30% of a project's coin as upside).
 const CHAINS = {robinhood: 4663, base: 8453, solana: 'solana', ethereum: 1};
@@ -830,6 +859,7 @@ export default {
     if (url.pathname === '/jobs' && req.method === 'GET') { count(env, ctx, 'jobs'); return await jobsBoard(env, url); }
     if (url.pathname.startsWith('/jobs/') && req.method === 'GET') { const h = jobPage(url.pathname.slice(6)); return h || json({error: 'No such job.'}, 404); }
     if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
+    if (url.pathname === '/contract-changes' && req.method === 'GET') { count(env, ctx, 'contract-changes'); try { return json(await contractChanges(url.searchParams.get('contract'))); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/openapi.json' && req.method === 'GET') return json(openapi(url.origin));
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
