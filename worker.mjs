@@ -372,6 +372,45 @@ async function contractChanges(contract) {
     by: 'JazzCat #1 (agent #26063), New Jazz City: read from the chain'};
 }
 
+// AI Portfolio & Risk Monitor (Agraris Wanted request 3e910fce): one wallet on Robinhood Chain, read from the chain.
+// Holdings (every token the wallet touched, with live balances), USDG in and out over 7 days, and plain-language risk
+// alerts with why each matters and a possible action. It never trades. Composes ledger, poisonCheck and contractChanges.
+async function portfolioWatch(address) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address || '')) throw new Error('address (0x…) is required.');
+  const a = address.toLowerCase();
+  const [flow, poison] = await Promise.all([ledger(a, 7).catch(e => ({error: e.message})), poisonCheck(a).catch(e => ({error: e.message}))]);
+  // tokens this wallet touched over about 11 days of Transfer logs, USDG always included
+  const touched = [USDG];
+  const [head] = await rpcBatch([['eth_blockNumber', []]]); const latest = BigInt(head), from = latest > 9000000n ? latest - 9000000n : 0n;
+  const hx = x => '0x' + x.toString(16);
+  const [inLogs, outLogs] = await rpcBatch([['eth_getLogs', [{fromBlock: hx(from), toBlock: 'latest', topics: [T.transfer, null, pad(a)]}]], ['eth_getLogs', [{fromBlock: hx(from), toBlock: 'latest', topics: [T.transfer, pad(a)]}]]], OFFICIAL);
+  for (const l of [...(inLogs || []), ...(outLogs || [])]) if (l.topics.length === 3) touched.push(l.address.toLowerCase());
+  const tokens = [...new Set(touched)].slice(0, 40);
+  const calls = tokens.flatMap(t => [['eth_call', [{to: t, data: '0x70a08231' + pad(a).slice(2)}, 'latest']], ['eth_call', [{to: t, data: '0x95d89b41'}, 'latest']], ['eth_call', [{to: t, data: '0x313ce567'}, 'latest']]]);
+  const res = await rpcBatch([...calls, ['eth_getBalance', [a, 'latest']]]);
+  const holdings = [];
+  tokens.forEach((t, i) => { const bal = BigInt(res[i * 3] && res[i * 3] !== '0x' ? res[i * 3] : '0x0'); if (bal === 0n) return;
+    const dec = Number(BigInt(res[i * 3 + 2] && res[i * 3 + 2] !== '0x' ? res[i * 3 + 2] : '0x12')); holdings.push({token: t, symbol: decodeString(res[i * 3 + 1]) || '?', balance: fmt(bal, dec)}); });
+  const eth = fmt(BigInt(res[res.length - 1] || '0x0'), 18);
+  const alerts = [];
+  if (poison.lookalikes?.length) alerts.push({level: 'high', what: `${poison.lookalikes.length} lookalike address(es) in this wallet's history`, why: 'Someone sent tiny transfers from addresses that copy the start and end of addresses you really pay, hoping you copy the wrong one next time.', action: 'Pay only full addresses you have saved; never copy a payee from recent history.'});
+  if (poison.poisoned?.length) alerts.push({level: 'high', what: `${poison.poisoned.length} poisoned transfer(s): fake tokens or entries this wallet never sent`, why: 'Fake tokens with real-looking names are there to trick you into interacting with a scam contract.', action: 'Ignore and hide them; do not approve or swap them.'});
+  // contract risk on the largest holdings (owner/proxy changes on the code you hold)
+  const checked = [];
+  for (const h of holdings.filter(h => h.token !== USDG).slice(0, 5)) {
+    const c = await contractChanges(h.token).catch(() => null); if (!c) continue; checked.push(h.symbol);
+    const up = c.changes.filter(x => x.change === 'Upgraded' || x.change === 'BeaconUpgraded' || x.change === 'AdminChanged');
+    if (up.length) alerts.push({level: 'high', what: `${h.symbol}: its contract code changed (${up[0].change}, block ${up[0].block})`, why: 'An upgradeable token can change its rules after you buy: fees, transfers or balances.', action: 'Read the new implementation before adding more; consider reducing exposure.', tx: up[0].tx});
+    if (c.pendingOwner) alerts.push({level: 'medium', what: `${h.symbol}: ownership transfer in progress to ${c.pendingOwner}`, why: 'A new owner can change what the owner controls on this token.', action: 'Watch who accepts it; know what the owner can do before it lands.'});
+    const own = c.changes.filter(x => x.change === 'OwnershipTransferred');
+    if (own.length && !up.length) alerts.push({level: 'medium', what: `${h.symbol}: owner changed recently (block ${own[0].block})`, why: 'Control moved to a new address.', action: 'Check whether the new owner is a known team wallet or a multisig.', tx: own[0].tx});
+  }
+  if (!flow.error && Number(flow.usdgOut) > Number(flow.usdgIn) * 2 && Number(flow.usdgOut) > 10) alerts.push({level: 'medium', what: `USDG out (${flow.usdgOut}) is more than twice USDG in (${flow.usdgIn}) this week`, why: 'Spending is outrunning income; at this pace the balance runs down.', action: 'Check the largest outgoing counterparties below.'});
+  return {address: a, chainId: CHAIN_ID, generatedAt: new Date().toISOString(), eth, holdings, usdg7d: flow.error ? {error: flow.error} : {in: flow.usdgIn, out: flow.usdgOut, balance: flow.balanceNow, topCounterparties: (flow.counterparties || []).slice(0, 5)},
+    alerts, checkedContracts: checked, summary: alerts.length ? `${alerts.length} alert(s): ` + alerts.map(x => x.what).join('; ') : 'No risk alerts for this wallet in the window.',
+    note: 'Read only: suggests actions, never executes trades. Poll it hourly; a new alert is the notification.', by: 'JazzCat #1 (agent #26063), New Jazz City: read from Robinhood Chain'};
+}
+
 // Quote a job in the buyer's own coin: dollar price -> token amount at the deepest pool's live price. Accepted only when that
 // pool is deep enough to absorb selling 70% of the payment (the Cat keeps 30% of a project's coin as upside).
 const CHAINS = {robinhood: 4663, base: 8453, solana: 'solana', ethereum: 1};
@@ -859,6 +898,7 @@ export default {
     if (url.pathname === '/jobs' && req.method === 'GET') { count(env, ctx, 'jobs'); return await jobsBoard(env, url); }
     if (url.pathname.startsWith('/jobs/') && req.method === 'GET') { const h = jobPage(url.pathname.slice(6)); return h || json({error: 'No such job.'}, 404); }
     if (url.pathname === '/buy' && req.method === 'GET') { count(env, ctx, 'buy'); return new Response(buyPage(url), {headers: {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store'}}); }
+    if (url.pathname === '/portfolio-watch' && req.method === 'GET') { count(env, ctx, 'portfolio-watch'); try { return json(await portfolioWatch(url.searchParams.get('address'))); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/contract-changes' && req.method === 'GET') { count(env, ctx, 'contract-changes'); try { return json(await contractChanges(url.searchParams.get('contract'))); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/openapi.json' && req.method === 'GET') return json(openapi(url.origin));
     if (url.pathname === '/llms.txt' && req.method === 'GET') { count(env, ctx, 'llms'); return new Response(llmsTxt(url.origin), {headers: {'content-type': 'text/plain; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=600'}}); }
