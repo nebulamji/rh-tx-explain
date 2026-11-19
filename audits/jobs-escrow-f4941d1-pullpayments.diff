@@ -1,0 +1,76 @@
+--- work/src/JobsEscrow.sol	2026-11-19 01:27:47.095867148 +0000
++++ pullfix/src/JobsEscrow.sol	2026-11-19 13:11:24.626883321 +0000
+@@ -52,6 +52,9 @@
+     mapping(uint256 => Delivery) public deliveries;
+     /// @dev Proposed amount to the worker, stored as amount + 1 so zero means "no proposal".
+     mapping(uint256 => mapping(address => uint256)) public proposals;
++    /// @notice Pull payments for dispute splits: each party's share waits here until that party withdraws it,
++    ///         so a recipient that cannot receive never blocks the other side (review finding M-1).
++    mapping(uint256 => mapping(address => uint256)) public owed;
+     uint256 public nextJobId = 1;
+ 
+     uint256 private _lock = 1;
+@@ -64,6 +67,7 @@
+     event JobDisputed(uint256 indexed jobId);
+     event ResolutionProposed(uint256 indexed jobId, address indexed party, uint256 toWorker);
+     event JobResolved(uint256 indexed jobId, uint256 toWorker, uint256 toBuyer, bool timedOut);
++    event ShareWithdrawn(uint256 indexed jobId, address indexed party, uint256 amount);
+ 
+     error ZeroWorker();
+     error SelfDeal();
+@@ -91,6 +95,7 @@
+     error TimeoutNotReached();
+     error TransferFailed();
+     error Reentrancy();
++    error NothingOwed();
+ 
+     modifier nonReentrant() {
+         if (_lock != 1) revert Reentrancy();
+@@ -242,11 +247,21 @@
+     function _resolve(uint256 jobId, Job storage j, uint256 toWorker, bool timedOut) private {
+         j.status = Status.Resolved; // effects before interaction
+         uint256 toBuyer = j.amount - toWorker;
+-        if (toWorker != 0) _pay(j.token, j.worker, toWorker);
+-        if (toBuyer != 0) _pay(j.token, j.buyer, toBuyer);
++        // Credit, don't push: each side withdraws its own share, so one reverting recipient can't block the other.
++        if (toWorker != 0) owed[jobId][j.worker] += toWorker;
++        if (toBuyer != 0) owed[jobId][j.buyer] += toBuyer;
+         emit JobResolved(jobId, toWorker, toBuyer, timedOut);
+     }
+ 
++    /// @notice Withdraw your share of a resolved dispute. Each share can be withdrawn exactly once.
++    function withdraw(uint256 jobId) external nonReentrant {
++        uint256 amount = owed[jobId][msg.sender];
++        if (amount == 0) revert NothingOwed();
++        owed[jobId][msg.sender] = 0; // effects before interaction
++        _pay(jobs[jobId].token, msg.sender, amount);
++        emit ShareWithdrawn(jobId, msg.sender, amount);
++    }
++
+     /// @notice Buyer recovers the funds: any time before the worker claims (cancel), or after expiry
+     ///         if the worker claimed but never recorded a delivery. Exactly once.
+     function refund(uint256 jobId) external nonReentrant {
+--- work/test/JobsEscrow.t.sol	2026-11-19 01:27:47.096197130 +0000
++++ pullfix/test/JobsEscrow.t.sol	2026-11-19 13:11:24.627759151 +0000
+@@ -253,7 +253,10 @@
+         vm.prank(buyer); esc.proposeResolution(id, amt / 2); // mismatch: nothing moves
+         assertEq(_bal(token, address(esc)), amt, "mismatch pays nothing");
+         assertEq(uint8(_status(id)), uint8(JobsEscrow.Status.Disputed));
+-        vm.prank(buyer); esc.proposeResolution(id, split); // match: settles
++        vm.prank(buyer); esc.proposeResolution(id, split); // match: settles (credits both shares)
++        vm.prank(worker); esc.withdraw(id);
++        vm.prank(buyer); esc.withdraw(id);
++        vm.prank(worker); vm.expectRevert(JobsEscrow.NothingOwed.selector); esc.withdraw(id);
+         assertEq(_bal(token, worker) - w0, split, "worker share");
+         assertEq(_bal(token, buyer) - b0, amt - split, "buyer share");
+         assertEq(_bal(token, address(esc)), 0, "escrow empty");
+@@ -280,6 +283,9 @@
+         uint256 w0 = _bal(token, worker);
+         uint256 b0 = _bal(token, buyer);
+         vm.prank(worker); esc.resolveAfterTimeout(id);
++        vm.prank(worker); esc.withdraw(id);
++        vm.prank(buyer); esc.withdraw(id);
++        vm.prank(buyer); vm.expectRevert(JobsEscrow.NothingOwed.selector); esc.withdraw(id);
+         assertEq(_bal(token, worker) - w0, amt / 2);
+         assertEq(_bal(token, buyer) - b0, amt - amt / 2);
+         assertEq(_bal(token, address(esc)), 0);
