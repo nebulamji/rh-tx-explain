@@ -18,3 +18,8 @@ database_id = "ff31497b-b3aa-4922-ae89-470350bc5ab6"
 
 [triggers]
 crons = ["*/10 * * * *"]
+
+# New Jazz City: its ERC-8004 identity and wallet (registered 2026-11-20 by KB from 2906, tx 0xa01b26b2…).
+[vars]
+NJC_AGENT_ID = "26221"
+CITY_WALLET = "0x0C0B48Beba6c89CE591b0092B1F5EA83481D2906"
