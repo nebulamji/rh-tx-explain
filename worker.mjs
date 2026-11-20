@@ -3,6 +3,7 @@ import {solTrail} from './sol.mjs';
 import {tbaRead} from './tba.mjs';
 import {poisonCheck} from './poison.mjs';
 import {incomeRead} from './income.mjs';
+import {cityRound} from './city.mjs';
 import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.json' with {type: 'json'};
 const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
@@ -985,4 +986,9 @@ export default {
     }
     return json({jsonrpc: '2.0', id: m.id, error: {code: -32601, message: 'Method not found'}});
   },
+  // New Jazz City's round for every enrolled Cat (city.mjs), on the worker's cron.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(cityRound(env, {run: PAID_RUN, catWallet}));
+  },
 };
+export {PAID_RUN, catWallet};

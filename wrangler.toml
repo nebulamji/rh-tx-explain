@@ -9,3 +9,12 @@ id = "b182475d1d9a4dd5ba836838c62b15e1"
 
 [ai]
 binding = "AI"
+
+# New Jazz City's round (city.mjs): the city's D1 and its schedule.
+[[d1_databases]]
+binding = "QDB"
+database_name = "njc-quest"
+database_id = "ff31497b-b3aa-4922-ae89-470350bc5ab6"
+
+[triggers]
+crons = ["*/10 * * * *"]
