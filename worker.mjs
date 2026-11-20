@@ -132,6 +132,11 @@ export async function explain(hash) {
 // ---- Paid: USDG ledger + reconciliation for any address (x402, settled by Toll's keyless facilitator, paid to JazzCat #1) ----
 const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168', CAT1_WALLET = '0x1479bE07E26976Fd712db34f7Bc1B8Ac523f806e', FACILITATOR = 'https://x402.t0ll.xyz';
 const PRIORS_FACILITATOR = 'https://facilitator.priors.trade'; let PRIORS_KEY = null; // set per request from env.PRIORS_KEY
+// New Jazz City's wallet (env CITY_WALLET). When set, sales by house-held Cats (Cat #1 and any Cat the house or the
+// treasury holds) pay the city, so the city's ERC-8004 identity carries the income. Holder Cats keep their own pay.
+let CITY_WALLET = null;
+const HOUSE = new Set(['0xb7e507034618e122aef4a032d1678453b3c9f60b', '0x0c0b48beba6c89ce591b0092b1f5ea83481d2906']);
+async function houseCat(n) { return n === '1' || HOUSE.has(((await catHolderEOA(n).catch(() => null)) || '').toLowerCase()); }
 const LEDGER_PRICE = '50000'; // 0.05 USDG (6 decimals)
 const ledgerReq = resource => ({scheme: 'exact', network: 'robinhood', maxAmountRequired: LEDGER_PRICE, resource,
   description: "USDG ledger for any Robinhood Chain address: every USDG in and out over the last N days (max 14), with counterparties, tx links and a reconciliation against the on-chain balance. JazzCat #1's audit method, automated.",
@@ -430,6 +435,21 @@ async function coinQuote(token, usd, chain = 'robinhood') {
 }
 
 // ERC-8004 agent card for JazzCat #1 as a seller: its paid endpoints and the wallet it is paid in.
+// New Jazz City's own ERC-8004 registration: the city that runs the economy for every JazzCat. It sells the same work
+// as the house Cats, and its registry wallet is the city's wallet, so the city's income and record are its own.
+const NJC_TREASURY = '0x0C0B48Beba6c89CE591b0092B1F5EA83481D2906';
+const NJC_CARD = () => ({type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'New Jazz City',
+  description: 'New Jazz City: the city on Robinhood Chain where JazzCats work. Hire a Cat for chain reads over x402 (USDG on Robinhood Chain, USDC on Base): USDG ledger 0.05, Stock Token halt check 0.25, money trail, poison check, income read and credit-line read 0.90, transfer read and agent-wallet handover read 1.80, full check of any address 2.70. Post paid City Jobs for agents and Cats at newjazzcity.pages.dev/api/jobs, with pay locked in escrow until delivery.',
+  image: 'https://newjazzcity.pages.dev/og.png',
+  services: [...CAT1_CARD.services.filter(x => x.name === 'x402'),
+    {name: 'MCP', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/mcp', version: '2025-06-18'},
+    {name: 'MCP', endpoint: 'https://newjazzcity.pages.dev/mcp', version: '2025-06-18'},
+    {name: 'jobs', endpoint: 'https://newjazzcity.pages.dev/api/jobs', version: '1'},
+    {name: 'web', endpoint: 'https://newjazzcity.pages.dev/'}],
+  x402Support: true, active: true, supportedTrust: ['reputation'],
+  registrations: NJC_ID ? [{agentId: NJC_ID, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'}] : [],
+  agentWallet: 'eip155:4663:' + (CITY_WALLET || NJC_TREASURY)});
+let NJC_ID = null;
 const CAT1_CARD = {type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1', name: 'JazzCat #1',
   description: 'JazzCat #1, New Jazz City: an on-chain jazz cat on Robinhood Chain that sells independent evidence to agents over x402 and BatchDesk. Halt check for Stock Tokens against the exchanges own lists (0.25 USDG), full check of any address (2.70 USDG), transfer read before you accept (1.80 USDG), credit-line read (0.90 USDG), money trail for any coin on Robinhood Chain or Solana (0.90 USDG; 0.70 per item in batches), USDG ledger with bridged funding traced (0.05 USDG), free transaction explainer. Every paid job is a row in its on-chain ReceiptBook. Paid in USDG straight into its own token-bound wallet.',
   image: 'https://jazzcatsfun.pages.dev/agents/1.svg',
@@ -601,7 +621,8 @@ const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
 const H402 = {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE, PAYMENT-RESPONSE, PAYMENT-REQUIRED'};
 async function paid(req, url, work, reqOf = ledgerReq) {
-  const cat = url.searchParams.get('cat'), seller = cat && cat !== '1' ? await catWallet(cat).catch(() => null) : null;
+  const cat = url.searchParams.get('cat'), toCity = CITY_WALLET && await houseCat(cat || '1');
+  const seller = toCity ? CITY_WALLET : cat && cat !== '1' ? await catWallet(cat).catch(() => null) : null;
   if (cat && cat !== '1' && !seller) return json({error: 'No JazzCat #' + cat + ' on Robinhood Chain.'}, 404);
   const base = reqOf(url.origin + url.pathname + url.search), requirement = seller ? {...base, payTo: seller, extra: {name: base.extra.name, version: base.extra.version}} : base;
   const holder = await catHolderEOA(cat || '1').catch(() => null);
@@ -856,7 +877,7 @@ function llmsTxt(origin) {
 function agentCard(origin) {
   return {name: 'JazzCat #1 · New Jazz City reads', description: 'Chain reads for agents, verdict first, paid per call over x402.', url: origin,
     provider: {organization: 'New Jazz City'}, identity: {standard: 'ERC-8004', chainId: 4663, registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: 26063},
-    payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453', 'solana', SOL_V2], asset: {robinhood: USDG, base: BASE_USDC, solana: SOL_USDC}, payTo: CAT1_WALLET.toLowerCase(), payToSolana: SOL_PAYTO},
+    payment: {protocol: 'x402', networks: ['robinhood', 'eip155:4663', 'eip155:8453', 'solana', SOL_V2], asset: {robinhood: USDG, base: BASE_USDC, solana: SOL_USDC}, payTo: (CITY_WALLET || CAT1_WALLET).toLowerCase(), payToSolana: SOL_PAYTO},
     jobs: origin + '/jobs?format=json',
     mcp: origin + '/mcp', llms: origin + '/llms.txt', book: origin + '/book.json', buy: origin + '/buy?read={route}',
     skills: PAID_TOOLS.map(t => ({id: t.name, name: t.title, priceUsd: t.price, endpoint: `${origin}/x402/${t.route}?${qs(t)}`, ...(marketLink(t.route) ? {market: `${marketLink(t.route)}?${qs(t)}`} : {}), input: t.inputSchema}))};
@@ -905,7 +926,7 @@ async function catGuard(req, env) {
 
 export default {
   async fetch(req, env, ctx) {
-    PRIORS_KEY = env.PRIORS_KEY || null;
+    PRIORS_KEY = env.PRIORS_KEY || null; CITY_WALLET = /^0x[0-9a-fA-F]{40}$/.test(env.CITY_WALLET || '') ? env.CITY_WALLET : null; NJC_ID = Number(env.NJC_AGENT_ID) || null;
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, {headers: {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST'}});
     if (url.pathname === '/cat/guard' && req.method === 'POST') return catGuard(req, env);
@@ -922,6 +943,7 @@ export default {
     if (url.pathname === '/mcp' && req.method === 'POST') count(env, ctx, 'mcp');
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
+    if (url.pathname === '/agents/njc.json') return json(NJC_CARD());
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
     if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
@@ -953,7 +975,7 @@ export default {
     if ((url.pathname === '/.well-known/agent-card.json' || url.pathname === '/.well-known/agent.json' || url.pathname === '/agent.json') && req.method === 'GET') { count(env, ctx, 'agent-card'); return json(agentCard(url.origin)); }
     if (url.pathname === '/.well-known/x402' && req.method === 'GET') return json({x402Version: 2, provider: 'New Jazz City (JazzCats)', mcp: url.origin + '/mcp', book: url.origin + '/book.json',
       resources: [['/x402/full-check?address={address}', '2.7'], ['/x402/money-trail?token={token}', '0.9'], ['/x402/base-verdict?token={token}', '0.03'], ['/x402/line-read?agentId={agentId}&vault={vault}&wallet={wallet}', '0.9'], ['/x402/transfer-read?contract={contract}', '1.8'], ['/x402/tba-read?account={account}&chain={chain}', '1.8'], ['/x402/poison-check?address={address}', '0.9'], ['/x402/income-read?agent={agent}&days={days}', '0.9'], ['/x402/halt-check?symbol={symbol}', '0.25'], ['/x402/base-trail?token={token}', '0.9'], ['/x402/sol-trail?mint={mint}', '0.9'], ['/x402/ledger?address={address}&days={days}', '0.05']].map(([r, usd]) => ({resource: url.origin + r, priceUsd: usd,
-        accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
+        accepts: [{network: 'eip155:4663', asset: 'USDG', payTo: CITY_WALLET || CAT1_WALLET}, {network: 'eip155:8453', asset: 'USDC', payTo: 'Cat holder'}], perCat: url.origin + r.split('?')[0] + '?cat={catId}'})),
       quote: url.origin + '/quote?token={token}&usd={usd}&chain=robinhood'});
     if (url.pathname === '/quote' && req.method === 'GET') { count(env, ctx, 'quote'); try { return json(await coinQuote(url.searchParams.get('token'), Number(url.searchParams.get('usd')), url.searchParams.get('chain') || 'robinhood')); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/x402/base-verdict' && req.method === 'GET') return paid(req, url, () => baseVerdict(url.searchParams.get('token'), url.origin), baseVerdictReq);
