@@ -10,6 +10,8 @@ const RPCS = ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood-rpc.
 const GENESIS = '0xb3d33af2ce8ce0792942b487e2213ac665dd83e2', RESOLVER = '0x841d8ec41fc0f8e253e5fc95f8023bca5e1b271d';
 const CALLBOOK = '0xca249d64bc49fb33182c46939816dc4bae0f8189';
 const RELEASED = '0x3bfce8de0db7450cc169b94323c210e69a36c6a4a58c9f5d96bec4973adce392';
+// QHooks pay-when-done escrow: getAgreement(id) word 5 is the pay still held; TrancheReleased(id, tranche, payee).
+const Q_RELEASED = '0x72ec94c9f72a73e34c8bc80509fd760d2ac4bd7fc3cf8159037dd5e05af31fbb';
 const RECHECK_MS = 10 * 60e3, MAX_TAKES = 20, MAX_DELIVERIES = 10;
 const word = v => BigInt(v).toString(16).padStart(64, '0'), addr = a => a.toLowerCase().slice(2).padStart(64, '0');
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -89,16 +91,20 @@ export async function cityRound(env, {run, catWallet}) {
     } catch (e) { report.errors.push({job: j.id, error: String(e.message).slice(0, 160)}); }
   }
 
-  // 4. Settle from the chain: agreements(id) status 2 released, 3 refunded.
+  // 4. Settle from the chain: Bull's agreements(id) status 2 released, 3 refunded; a QHooks agreement is released once its
+  //    TrancheReleased event is on chain and refunded when nothing is held and no release happened.
   for (const j of (await db.prepare("SELECT * FROM city_jobs WHERE status IN ('funded','delivered') AND agreement IS NOT NULL AND agreement_contract IS NOT NULL").all()).results) {
     try {
-      const raw = await call(env, j.agreement_contract, '0xd5a7420d' + word(j.agreement));
-      const status = raw && raw.length >= 2 + 64 * 6 ? Number(BigInt('0x' + raw.slice(2 + 64 * 5, 2 + 64 * 6))) : 0;
+      const qhooks = j.escrow === 'qhooks', from = '0x' + Number(j.funded_block || 0).toString(16);
+      const raw = await call(env, j.agreement_contract, (qhooks ? '0x4f9f6fe6' : '0xd5a7420d') + word(j.agreement));
+      const word5 = raw && raw.length >= 2 + 64 * 6 ? BigInt('0x' + raw.slice(2 + 64 * 5, 2 + 64 * 6)) : null;
+      const qlogs = qhooks && word5 === 0n ? await rpc(env, 'eth_getLogs', [{address: j.agreement_contract, fromBlock: from, toBlock: 'latest', topics: [Q_RELEASED, '0x' + word(j.agreement)]}]) : null;
+      const status = word5 === null ? 0 : qhooks ? (word5 > 0n ? 1 : qlogs?.length ? 2 : 3) : Number(word5);
       if (status === 3) {
         await db.prepare("UPDATE city_jobs SET status='refunded', updated=? WHERE id=?").bind(Date.now(), j.id).run();
         report.refunded.push({job: j.id});
       } else if (status === 2) {
-        const logs = await rpc(env, 'eth_getLogs', [{address: j.agreement_contract, fromBlock: '0x' + Number(j.funded_block || 0).toString(16), toBlock: 'latest', topics: [RELEASED, '0x' + word(j.agreement)]}]);
+        const logs = qlogs || await rpc(env, 'eth_getLogs', [{address: j.agreement_contract, fromBlock: from, toBlock: 'latest', topics: [RELEASED, '0x' + word(j.agreement)]}]);
         const tx = Array.isArray(logs) && logs[0]?.transactionHash || null;
         await db.prepare("UPDATE city_jobs SET status='released', release_tx=?, updated=? WHERE id=?").bind(tx, Date.now(), j.id).run();
         report.released.push({job: j.id, cat: j.taker_cat, agentId: j.taker_agent, pay: j.amount, tx});
