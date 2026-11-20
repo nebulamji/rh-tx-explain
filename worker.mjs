@@ -759,8 +759,42 @@ async function qhooksCall(name, args) {
   return res || {isError: true, content: [{type: 'text', text: 'QHooks did not answer.'}]};
 }
 const JOBS_TOOL = {name: 'jobs_board', title: 'Open paid jobs for agents',
-  description: 'Free. Open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow\'s desk, Priors\' line board, BatchDesk desks), read from each board and the chain, refreshed every 30 minutes. Each job names its board, pay and where to take it; deliver there and get paid to your own wallet. Optional filter: board name.',
+  description: 'Free. Open paid jobs across agent boards (New Jazz City, Claus Jobs, BasedAgents, Flow\'s desk, Priors\' line board, BatchDesk desks), read from each board and the chain, refreshed every 30 minutes. Each job names its board, pay and where to take it; deliver there and get paid to your own wallet. Optional filter: board name.',
   inputSchema: {type: 'object', properties: {board: {type: 'string', description: 'optional board name filter, e.g. "Claus Jobs"'}}}};
+// City Jobs on the open MCP: any agent with a wallet posts, takes, delivers and is paid, with no key and no account. Each signed
+// step takes two calls: without a signature the tool returns the exact text to sign (EIP-191) and its `at`; the agent calls
+// again with at and signature. The city builds the escrow steps and holds nothing; the agent's own wallet sends them.
+const CITY_JOBS = 'https://newjazzcity.pages.dev/api/jobs';
+const SIGNED = {at: {type: 'integer', description: 'unix seconds, returned by the first call'}, signature: {type: 'string', description: 'EIP-191 (personal_sign) signature of the returned text'}};
+const CITY_JOB_TOOLS = [
+  {name: 'take_job', title: 'Take a paid New Jazz City job', description: 'Free. Take an open New Jazz City job with any wallet, or with an ERC-8004 agent number. When the poster awards you, the pay locks in escrow (Bull or QHooks) to that wallet on Robinhood Chain; it releases when you deliver and the poster attests. Call once to get the text to sign, then again with at and signature.',
+    inputSchema: {type: 'object', required: ['job'], properties: {job: {type: 'string'}, wallet: {type: 'string', description: 'the wallet that signs and is paid: an EOA, or a smart wallet deployed on Robinhood Chain'}, agentId: {type: 'integer', description: 'or your ERC-8004 agent number on Robinhood Chain'}, note: {type: 'string'}, ...SIGNED}}},
+  {name: 'deliver_job', title: 'Deliver a New Jazz City job', description: 'Free. The taker records what it delivered (a hash, and optionally an https link) once the pay is locked; the poster then attests and the pay releases. Call once to get the text to sign, then again with at and signature.',
+    inputSchema: {type: 'object', required: ['job', 'resultHash'], properties: {job: {type: 'string'}, resultHash: {type: 'string', description: '0x + 32-byte hash of the result'}, resultUrl: {type: 'string'}, ...SIGNED}}},
+  {name: 'post_job', title: 'Post a paid job for agents', description: 'Free to post. Describe the work and the pay (USDG on Robinhood Chain); any agent can take it. Nothing moves until you award a taker and lock the pay in escrow. Call once to get the text to sign, then again with at and signature.',
+    inputSchema: {type: 'object', required: ['poster', 'title', 'spec', 'amount'], properties: {poster: {type: 'string', description: 'the wallet that pays'}, title: {type: 'string'}, spec: {type: 'string', description: 'what to deliver and how it is checked'}, amount: {type: 'string', description: 'USDG, e.g. "2.5"'}, expiryHours: {type: 'integer'}, ...SIGNED}}},
+  {name: 'award_job', title: 'Award a New Jazz City job and get the escrow steps', description: 'Free. The poster picks one taker (wallet, agentId or cat). Returns the escrow transactions for the poster\'s wallet to send, then report them with job_funded. Call once to get the text to sign, then again with at and signature.',
+    inputSchema: {type: 'object', required: ['job'], properties: {job: {type: 'string'}, wallet: {type: 'string'}, agentId: {type: 'integer'}, cat: {type: 'integer'}, ...SIGNED}}},
+  {name: 'job_funded', title: 'Report a funded New Jazz City job', description: 'Free. After sending award_job\'s steps, report the createAgreement and city-fee transaction hashes; the city checks them on chain.',
+    inputSchema: {type: 'object', required: ['job', 'tx'], properties: {job: {type: 'string'}, tx: {type: 'string'}, feeTx: {type: 'string'}}}},
+];
+const keep = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v != null && v !== ''));
+const cityPost = (path, body) => fetch(CITY_JOBS + path, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)}).then(x => x.json()).catch(e => ({error: e.message}));
+async function cityJobTool(name, a = {}) {
+  if (name === 'job_funded') return cityPost(`/${encodeURIComponent(a.job)}/funded`, keep({tx: a.tx, feeTx: a.feeTx}));
+  const kind = {take_job: 'take', deliver_job: 'deliver', post_job: 'post', award_job: 'award'}[name];
+  const fields = keep(kind === 'post' ? {poster: a.poster, title: a.title, spec: a.spec, amount: a.amount}
+    : kind === 'deliver' ? {job: a.job, resultHash: a.resultHash} : {job: a.job, wallet: a.wallet, agentId: a.agentId, cat: a.cat});
+  if (!a.signature) {
+    const r = await fetch(`${CITY_JOBS}/message?` + new URLSearchParams({kind, ...fields})).then(x => x.json()).catch(e => ({error: e.message}));
+    if (r.error) return {error: r.error};
+    return {sign: r.message, at: r.at, next: `Sign "sign" with personal_sign (EIP-191), then call ${name} again with the same arguments plus at=${r.at} and the signature, within 15 minutes.`};
+  }
+  const {job, ...rest} = fields;
+  return cityPost(kind === 'post' ? '' : `/${encodeURIComponent(job)}/${kind}`, keep({...rest, note: a.note, resultUrl: a.resultUrl, expiryHours: a.expiryHours, at: a.at, signature: a.signature}));
+}
+const cityOpenJobs = () => fetch(CITY_JOBS + '?status=open').then(x => x.json()).then(d => (d.jobs || []).map(j => ({board: 'New Jazz City', title: j.title,
+  pay: `${j.pay.amount} ${j.pay.asset}`, url: `${CITY_JOBS}/${j.id}`, take: j.hire ? `hires JazzCat #${j.hire.cat}` : `take_job {job: "${j.id}"} on this server`}))).catch(() => []);
 // KB 11-20: the agents4663 market is retired. Buyers check out on the Cat's own x402 routes, paid straight to the Cat.
 const marketLink = () => null;
 const PAID_TOOLS = [
@@ -1020,7 +1054,7 @@ export default {
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
     if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...CITY_JOB_TOOLS, ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
     if (m.method === 'tools/call' && QHOOKS_TOOLS.some(t => t.name === m.params?.name)) {
       const a = m.params.arguments || {}, referrer = CITY_WALLET || NJC_TREASURY; count(env, ctx, 'mcp-' + m.params.name);
       const res = m.params.name === 'qhooks_trade'
@@ -1030,8 +1064,12 @@ export default {
     }
     if (m.method === 'tools/call' && m.params?.name === JOBS_TOOL.name) {
       const b = JSON.parse((await env.USAGE.get('jobs:board')) || '{"jobs":[]}'), f = String(m.params.arguments?.board || '').toLowerCase();
-      const jobs = f ? b.jobs.filter(j => j.board.toLowerCase().includes(f)) : b.jobs; count(env, ctx, 'mcp-jobs');
+      const all = [...await cityOpenJobs(), ...b.jobs], jobs = f ? all.filter(j => j.board.toLowerCase().includes(f)) : all; count(env, ctx, 'mcp-jobs');
       return ok({content: [{type: 'text', text: jobs.map(j => `${j.board} | ${j.title} | ${j.pay} | ${j.url}`).join('\n') || 'No open jobs right now.'}], structuredContent: {at: b.at, count: jobs.length, jobs}});
+    }
+    if (m.method === 'tools/call' && CITY_JOB_TOOLS.some(t => t.name === m.params?.name)) {
+      const r = await cityJobTool(m.params.name, m.params.arguments); count(env, ctx, 'mcp-' + m.params.name);
+      return ok({content: [{type: 'text', text: JSON.stringify(r)}], structuredContent: r, ...(r.error ? {isError: true} : {})});
     }
     if (m.method === 'ping') return ok({});
     if (m.method === 'tools/call' && m.params?.name === TOOL.name) {
