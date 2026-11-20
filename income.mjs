@@ -1,7 +1,8 @@
 // Income read: who actually paid an agent. Every USDG into the agent's wallet over N days (max 60), sorted by payer and
 // labelled: its own wallets (ERC-8004 owner / agent wallet), its own withdrawals (transfers its wallet started), loans
 // (Priors pool), swap proceeds (DEX routers and pool managers), and outside payers. Outside payers are the income; the rest is not. Reads Robinhood Chain only.
-const RPC = 'https://rpc.mainnet.chain.robinhood.com', REGISTRY = '0x8004a169fb4a3325136eb29fa0ceb6d2e539a432';
+// The official RPC refuses Cloudflare's servers, so the deployed worker reads it through the read-only proxy (same as worker.mjs OFFICIAL).
+const RPC = globalThis.NJC_LOCAL ? 'https://rpc.mainnet.chain.robinhood.com' : 'https://njc-read-proxy.vercel.app/api/rpc', REGISTRY = '0x8004a169fb4a3325136eb29fa0ceb6d2e539a432';
 const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168', TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const KNOWN = {'0x281210097f0de7a8fb6f87310af0f089c9c8de21': 'loan', '0x8366a39cc670b4001a1121b8f6a443a643e40951': 'swap',
   '0xbdbae060cbab0e9cfe802a7513dd5ecb36cda6c3': 'swap', '0xe8852602f84e04e284286d8db01a41edd0ccefb0': 'swap', '0x8876789976decbfcbbbe364623c63652db8c0904': 'swap'};

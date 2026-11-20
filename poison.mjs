@@ -2,7 +2,8 @@
 // poisoning on Robinhood Chain. Two tells, both from the chain: tokens whose name only looks like a real one (USDG
 // with invisible characters, a USDC that is not USDC's contract), and counterparties that share the first and last
 // characters of a real counterparty but differ in the middle. Reads the chain only.
-const RPC = 'https://rpc.mainnet.chain.robinhood.com';
+// The official RPC refuses Cloudflare's servers, so the deployed worker reads it through the read-only proxy (same as worker.mjs OFFICIAL).
+const RPC = globalThis.NJC_LOCAL ? 'https://rpc.mainnet.chain.robinhood.com' : 'https://njc-read-proxy.vercel.app/api/rpc';
 const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const REAL = {'0x5fc5360d0400a0fd4f2af552add042d716f1d168': 'USDG'}; // canonical tokens on Robinhood Chain, by contract
 const LOOKS = ['USDG', 'USDC', 'USDT', 'WETH', 'ETH', 'PRIORS', 'CREDIT'];
