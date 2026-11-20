@@ -4,6 +4,7 @@ import {tbaRead} from './tba.mjs';
 import {poisonCheck} from './poison.mjs';
 import {incomeRead} from './income.mjs';
 import {cityRound} from './city.mjs';
+import {creditFile} from './credit.mjs';
 import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.json' with {type: 'json'};
 const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
@@ -445,6 +446,7 @@ const NJC_CARD = () => ({type: 'https://eips.ethereum.org/EIPS/eip-8004#registra
     {name: 'MCP', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/mcp', version: '2025-06-18'},
     {name: 'MCP', endpoint: 'https://newjazzcity.pages.dev/mcp', version: '2025-06-18'},
     {name: 'jobs', endpoint: 'https://newjazzcity.pages.dev/api/jobs', version: '1'},
+    {name: 'credit-file', endpoint: 'https://njc-tx-explain.departmentofjazz.workers.dev/.well-known/agent-credit-file.json', version: '1'},
     {name: 'web', endpoint: 'https://newjazzcity.pages.dev/'}],
   x402Support: true, active: true, supportedTrust: ['reputation'],
   registrations: NJC_ID ? [{agentId: NJC_ID, agentRegistry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'}] : [],
@@ -945,6 +947,10 @@ export default {
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
     if (url.pathname === '/agents/njc.json') return json(NJC_CARD());
+    if (url.pathname === '/credit-file' || url.pathname === '/.well-known/agent-credit-file.json') {
+      const agent = url.pathname === '/credit-file' ? url.searchParams.get('agent') : String(NJC_ID || 26221);
+      try { return json(await creditFile(agent, {incomeRead: (a, d) => incomeRead(a, d)})); } catch (e) { return json({error: e.message}, 400); }
+    }
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
     if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
