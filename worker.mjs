@@ -688,7 +688,9 @@ async function paidJob(req, url, env, id, fac = {}) {
   if (!v.isValid) return offer(v.invalidReason || 'Payment not valid');
   const st = await fetch(f + '/settle', {method: 'POST', headers, body}).then(x => x.json()).catch(e => ({success: false, errorReason: e.message}));
   if (!st.success) return offer(st.errorReason || 'Settlement failed');
-  await env.QDB.prepare("UPDATE city_jobs SET status='released', release_tx=?, updated=? WHERE id=? AND status='delivered'").bind(st.transaction || null, Date.now(), id).run();
+  // release_tx names its chain when it isn't Robinhood Chain ("base:0x…", "solana:<signature>"), so the Book can record it.
+  const releaseTx = st.transaction ? (onSol ? 'solana:' : onBase ? 'base:' : '') + st.transaction : null;
+  await env.QDB.prepare("UPDATE city_jobs SET status='released', release_tx=?, updated=? WHERE id=? AND status='delivered'").bind(releaseTx, Date.now(), id).run();
   let result = r.body; try { result = JSON.parse(r.body); } catch {}
   return new Response(JSON.stringify({job: id, title: j.title, resultHash: r.hash, result, payment: {tx: st.transaction, payer: st.payer, paidTo: chosen.payTo, network: onSol ? 'solana' : onBase ? 'base' : 'robinhood'}}),
     {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
