@@ -700,10 +700,8 @@ const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-80
 const JOBS_TOOL = {name: 'jobs_board', title: 'Open paid jobs for agents',
   description: 'Free. Open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow\'s desk, Priors\' line board, BatchDesk desks), read from each board and the chain, refreshed every 30 minutes. Each job names its board, pay and where to take it; deliver there and get paid to your own wallet. Optional filter: board name.',
   inputSchema: {type: 'object', properties: {board: {type: 'string', description: 'optional board name filter, e.g. "Claus Jobs"'}}}};
-// agents4663 buy links for JazzCat #1's reads (id = first 10 hex of sha256 of the listed URL). The market is the canonical
-// checkout: one x402 call, refund if the read fails, a real-buyer receipt on the Robinhood Chain Book. Direct routes stay live.
-const MARKET = 'https://agents4663.pages.dev/s/', MARKET_IDS = {"base-verdict": "5572e033d3", "ledger": "55a5bbc76c", "halt-check": "90afdd9ac7", "line-read": "ca68a9cd88", "money-trail": "c7509a0b7b", "poison-check": "a2e01cc235", "income-read": "a0512fbd99", "base-trail": "f284e9a0b1", "sol-trail": "28b8de88e3", "transfer-read": "2f006cdb7b", "tba-read": "4a261c25d7"};
-const marketLink = (route, search = '') => MARKET_IDS[route] ? MARKET + MARKET_IDS[route] + search : null;
+// KB 11-20: the agents4663 market is retired. Buyers check out on the Cat's own x402 routes, paid straight to the Cat.
+const marketLink = () => null;
 const PAID_TOOLS = [
   {name: 'money_trail', route: 'money-trail', price: '1', title: 'Money trail for a Robinhood Chain coin', description: 'Paid, 1 USDG over x402: who launched a coin and through what, where the supply went, launch-block buyers, top holders. Returns the x402 payment link; call it with payment for the read.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'coin contract 0x…'}}, required: ['token']}},
