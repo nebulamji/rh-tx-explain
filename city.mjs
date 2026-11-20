@@ -12,7 +12,9 @@ const CALLBOOK = '0xca249d64bc49fb33182c46939816dc4bae0f8189';
 const RELEASED = '0x3bfce8de0db7450cc169b94323c210e69a36c6a4a58c9f5d96bec4973adce392';
 // QHooks pay-when-done escrow: getAgreement(id) word 5 is the pay still held; TrancheReleased(id, tranche, payee).
 const Q_RELEASED = '0x72ec94c9f72a73e34c8bc80509fd760d2ac4bd7fc3cf8159037dd5e05af31fbb';
-const RECHECK_MS = 10 * 60e3, MAX_TAKES = 20, MAX_DELIVERIES = 10;
+// A wallet can activate hundreds of Cats with one signature, so a round rechecks at most MAX_CHECKS of them, stalest first,
+// and rechecks any stale Cat again right before it takes a job.
+const RECHECK_MS = 10 * 60e3, MAX_TAKES = 20, MAX_DELIVERIES = 10, MAX_CHECKS = 40;
 const word = v => BigInt(v).toString(16).padStart(64, '0'), addr = a => a.toLowerCase().slice(2).padStart(64, '0');
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -50,11 +52,17 @@ export async function cityRound(env, {run, catWallet}) {
 
   // 1. Cats whose grant still holds.
   const live = [];
-  for (const c of (await db.prepare('SELECT * FROM city_cats WHERE active=1').all()).results) {
-    if (c.checked && t0 - c.checked < RECHECK_MS) { live.push(c); continue; }
-    let why; try { why = await grantHolds(env, c); } catch (e) { report.errors.push({cat: c.cat, error: e.message}); live.push(c); continue; }
+  const recheck = async c => {
+    const why = await grantHolds(env, c);
     await db.prepare(`UPDATE city_cats SET ${why ? 'active=0, ' : ''}checked=? WHERE cat=?`).bind(t0, c.cat).run();
-    if (why) report.dropped.push({cat: c.cat, why}); else live.push(c);
+    c.checked = t0; if (why) report.dropped.push({cat: c.cat, why});
+    return !why;
+  };
+  let checks = 0;
+  for (const c of (await db.prepare('SELECT * FROM city_cats WHERE active=1 ORDER BY checked').all()).results) {
+    if ((c.checked && t0 - c.checked < RECHECK_MS) || checks >= MAX_CHECKS) { live.push(c); continue; }
+    checks++;
+    try { if (await recheck(c)) live.push(c); } catch (e) { report.errors.push({cat: c.cat, error: e.message}); live.push(c); }
   }
   report.enrolled = live.length;
 
@@ -65,11 +73,14 @@ export async function cityRound(env, {run, catWallet}) {
       if (load.has(r.cat)) load.set(r.cat, r.n);
     const open = (await db.prepare(`SELECT id, read, hire_cat FROM city_jobs j WHERE status='open' AND read IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM city_bids b WHERE b.job=j.id AND b.cat IS NOT NULL) ORDER BY created LIMIT ${MAX_TAKES}`).all()).results;
+    const byCat = new Map(live.map(c => [c.cat, c]));
     for (const j of open) {
       // A job that hires one Cat goes to that Cat only, once it is in the city.
       if (j.hire_cat && !load.has(j.hire_cat)) { report.waiting = [...(report.waiting || []), {job: j.id, cat: j.hire_cat}]; continue; }
       const [cat] = j.hire_cat ? [j.hire_cat] : [...load.entries()].sort((a, b) => a[1] - b[1] || a[0] - b[0])[0];
       try {
+        const c = byCat.get(cat);
+        if (t0 - (c.checked || 0) >= RECHECK_MS && !await recheck(c)) { load.delete(cat); continue; }
         const wallet = await catWallet(String(cat));
         await db.prepare('INSERT OR IGNORE INTO city_bids (job,taker,agent,cat,wallet,signer,note,created) VALUES (?,?,?,?,?,?,?,?)')
           .bind(j.id, 'cat:' + cat, null, cat, wallet, 'city', `JazzCat #${cat} runs ${j.read} for this job and delivers it the round the pay locks.`, t0).run();
