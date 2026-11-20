@@ -634,7 +634,30 @@ const b64 = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 // x402 v1 names the network "robinhood"; v2 clients want CAIP-2 "eip155:4663". Offer both, settle whichever the payer signed.
 const v2Of = r => ({scheme: 'exact', network: 'eip155:' + CHAIN_ID, amount: r.maxAmountRequired, asset: r.asset, payTo: r.payTo, maxTimeoutSeconds: r.maxTimeoutSeconds, extra: r.extra});
 const H402 = {'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'X-PAYMENT-RESPONSE, PAYMENT-RESPONSE, PAYMENT-REQUIRED'};
+// $JAZZ holders: x-jazz-holder: <address>.<signature of "Jazz holder <address> <YYYY-MM-DD>">. The site checks the
+// signature and the balance; the answer is cached for the day, and a holder's first JAZZ_FREE_CALLS paid reads a day are free.
+let HOLDER_ENV = null;
+async function holderPass(req) {
+  const env = HOLDER_ENV, h = req.headers.get('x-jazz-holder') || '';
+  const [address, signature] = h.split('.');
+  if (!JAZZ_TOKEN || !env?.USAGE || !/^0x[0-9a-fA-F]{40}$/.test(address || '') || !signature) return null;
+  const day = new Date().toISOString().slice(0, 10), a = address.toLowerCase(), key = `holder:${a}:${day}`;
+  let st = JSON.parse(await env.USAGE.get(key) || 'null');
+  if (!st) {
+    const r = await fetch(`https://newjazzcity.pages.dev/api/city/holder?address=${a}&signature=${signature}`).then(x => x.json()).catch(() => null);
+    if (!r) return null;
+    st = {holder: !!r.holder, used: 0};
+    await env.USAGE.put(key, JSON.stringify(st), {expirationTtl: 2 * 86400});
+  }
+  const free = Number(env.JAZZ_FREE_CALLS || 20);
+  if (!st.holder || st.used >= free) return null;
+  st.used++; await env.USAGE.put(key, JSON.stringify(st), {expirationTtl: 2 * 86400});
+  return {address: a, left: free - st.used};
+}
 async function paid(req, url, work, reqOf = ledgerReq) {
+  const pass = await holderPass(req).catch(() => null);
+  if (pass) { let result; try { result = await work(); } catch (e) { return json({error: e.message}, 400); }
+    return new Response(JSON.stringify({...result, payment: {paidWith: 'holder', holder: pass.address, freeCallsLeftToday: pass.left}}), {headers: H402}); }
   const cat = url.searchParams.get('cat'), toCity = CITY_WALLET && await houseCat(cat || '1');
   const seller = toCity ? CITY_WALLET : cat && cat !== '1' ? await catWallet(cat).catch(() => null) : null;
   if (cat && cat !== '1' && !seller) return json({error: 'No JazzCat #' + cat + ' on Robinhood Chain.'}, 404);
@@ -1066,7 +1089,7 @@ async function catGuard(req, env) {
 
 export default {
   async fetch(req, env, ctx) {
-    PRIORS_KEY = env.PRIORS_KEY || null; CITY_WALLET = /^0x[0-9a-fA-F]{40}$/.test(env.CITY_WALLET || '') ? env.CITY_WALLET : null; NJC_ID = Number(env.NJC_AGENT_ID) || null; JAZZ_TOKEN = /^0x[0-9a-fA-F]{40}$/.test(env.JAZZ_TOKEN || '') ? env.JAZZ_TOKEN : null;
+    PRIORS_KEY = env.PRIORS_KEY || null; CITY_WALLET = /^0x[0-9a-fA-F]{40}$/.test(env.CITY_WALLET || '') ? env.CITY_WALLET : null; NJC_ID = Number(env.NJC_AGENT_ID) || null; JAZZ_TOKEN = /^0x[0-9a-fA-F]{40}$/.test(env.JAZZ_TOKEN || '') ? env.JAZZ_TOKEN : null; HOLDER_ENV = env;
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, {headers: {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST'}});
     if (url.pathname === '/cat/guard' && req.method === 'POST') return catGuard(req, env);
