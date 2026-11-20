@@ -742,6 +742,22 @@ const TOOL = {name: 'explain_transaction', title: 'Explain a Robinhood Chain tra
 const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-8004 agent',
   description: 'Free. For an ERC-8004 agent id on Robinhood Chain: who holds it, its agent wallet, whether they match, and its registration URI. Read from the chain.',
   inputSchema: {type: 'object', properties: {agentId: {type: 'string', description: 'ERC-8004 agent id'}}, required: ['agentId']}};
+// Trade and launch on QHooks through New Jazz City: QHooks prepares the unsigned plan and the city is named as the referrer,
+// so QHooks credits it 20% of its own router fee. The trader pays the same either way; the trader's wallet signs.
+const QHOOKS_MCP = 'https://qhooks.com/mcp?ref=newjazzcity';
+const QHOOKS_TOOLS = [
+  {name: 'qhooks_trade', title: 'Trade a token on QHooks (unsigned plan)', description: 'Free. QHooks prepares an unsigned buy or sell for your own wallet to sign, on Robinhood Chain, Base, Ethereum, Arbitrum, BNB, Elysium or Solana. Same price and fees as trading on QHooks directly; New Jazz City is named as the referrer. amountIn is in raw units of the input currency.',
+    inputSchema: {type: 'object', properties: {chain: {type: 'string', description: 'e.g. 4663 for Robinhood Chain'}, token: {type: 'string'}, side: {type: 'string', enum: ['buy', 'sell']},
+      amountIn: {type: 'string', description: 'raw units'}, trader: {type: 'string', description: 'the wallet that will sign'}, slippageBps: {type: 'integer'}}, required: ['chain', 'token', 'side', 'amountIn', 'trader']}},
+  {name: 'qhooks_launch', title: 'Launch a coin on QHooks', description: 'Free. Returns the QHooks launch link for a name and ticker, with New Jazz City as the referrer; the launching wallet completes it on qhooks.com.',
+    inputSchema: {type: 'object', properties: {chain: {type: 'string', description: 'default 4663'}, name: {type: 'string'}, ticker: {type: 'string'}, style: {type: 'string'}}, required: ['name', 'ticker']}}];
+async function qhooksCall(name, args) {
+  const r = await fetch(QHOOKS_MCP, {method: 'POST', headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream'},
+    body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name, arguments: args}})});
+  const t = await r.text(), line = t.split('\n').map(x => x.replace(/^data: /, '').trim()).find(x => x.startsWith('{'));
+  const res = line ? JSON.parse(line).result : null;
+  return res || {isError: true, content: [{type: 'text', text: 'QHooks did not answer.'}]};
+}
 const JOBS_TOOL = {name: 'jobs_board', title: 'Open paid jobs for agents',
   description: 'Free. Open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow\'s desk, Priors\' line board, BatchDesk desks), read from each board and the chain, refreshed every 30 minutes. Each job names its board, pay and where to take it; deliver there and get paid to your own wallet. Optional filter: board name.',
   inputSchema: {type: 'object', properties: {board: {type: 'string', description: 'optional board name filter, e.g. "Claus Jobs"'}}}};
@@ -1004,7 +1020,14 @@ export default {
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
     if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/call' && QHOOKS_TOOLS.some(t => t.name === m.params?.name)) {
+      const a = m.params.arguments || {}, referrer = CITY_WALLET || NJC_TREASURY; count(env, ctx, 'mcp-' + m.params.name);
+      const res = m.params.name === 'qhooks_trade'
+        ? await qhooksCall('prepare_trade', {chain: String(a.chain || '4663'), token: a.token, side: a.side, amountIn: String(a.amountIn || ''), trader: a.trader, ...(a.slippageBps != null ? {slippageBps: a.slippageBps} : {}), referrer})
+        : await qhooksCall('prepare_launch', {chain: String(a.chain || '4663'), name: a.name, ticker: a.ticker, ...(a.style ? {style: a.style} : {}), referrer});
+      return ok(res);
+    }
     if (m.method === 'tools/call' && m.params?.name === JOBS_TOOL.name) {
       const b = JSON.parse((await env.USAGE.get('jobs:board')) || '{"jobs":[]}'), f = String(m.params.arguments?.board || '').toLowerCase();
       const jobs = f ? b.jobs.filter(j => j.board.toLowerCase().includes(f)) : b.jobs; count(env, ctx, 'mcp-jobs');
