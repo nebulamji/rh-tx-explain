@@ -625,7 +625,8 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   const seller = toCity ? CITY_WALLET : cat && cat !== '1' ? await catWallet(cat).catch(() => null) : null;
   if (cat && cat !== '1' && !seller) return json({error: 'No JazzCat #' + cat + ' on Robinhood Chain.'}, 404);
   const base = reqOf(url.origin + url.pathname + url.search), requirement = seller ? {...base, payTo: seller, extra: {name: base.extra.name, version: base.extra.version}} : base;
-  const holder = await catHolderEOA(cat || '1').catch(() => null);
+  // Base USDC goes to a plain wallet that holds the same key on Base: the city's wallet for house Cats, else the holder.
+  const holder = toCity ? CITY_WALLET : await catHolderEOA(cat || '1').catch(() => null);
   const baseReq = holder ? {...requirement, network: 'base', payTo: holder, asset: BASE_USDC, extra: {name: 'USD Coin', version: '2'}} : null, base2 = baseReq && {...v2Of(baseReq), network: 'eip155:8453'};
   const solReq = {...requirement, network: 'solana', payTo: SOL_PAYTO, asset: SOL_USDC, extra: {feePayer: SOL_FEEPAYER}}, sol2 = {...v2Of(solReq), network: SOL_V2};
   const req2 = v2Of(requirement), header = req.headers.get('x-payment') || req.headers.get('payment-signature');
