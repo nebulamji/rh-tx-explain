@@ -63,10 +63,12 @@ export async function cityRound(env, {run, catWallet}) {
     const load = new Map(live.map(c => [c.cat, 0]));
     for (const r of (await db.prepare("SELECT b.cat, COUNT(*) n FROM city_bids b JOIN city_jobs j ON j.id=b.job WHERE b.cat IS NOT NULL AND j.status IN ('open','awarded','funded') GROUP BY b.cat").all()).results)
       if (load.has(r.cat)) load.set(r.cat, r.n);
-    const open = (await db.prepare(`SELECT id, read FROM city_jobs j WHERE status='open' AND read IS NOT NULL
+    const open = (await db.prepare(`SELECT id, read, hire_cat FROM city_jobs j WHERE status='open' AND read IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM city_bids b WHERE b.job=j.id AND b.cat IS NOT NULL) ORDER BY created LIMIT ${MAX_TAKES}`).all()).results;
     for (const j of open) {
-      const [cat] = [...load.entries()].sort((a, b) => a[1] - b[1] || a[0] - b[0])[0];
+      // A job that hires one Cat goes to that Cat only, once it is in the city.
+      if (j.hire_cat && !load.has(j.hire_cat)) { report.waiting = [...(report.waiting || []), {job: j.id, cat: j.hire_cat}]; continue; }
+      const [cat] = j.hire_cat ? [j.hire_cat] : [...load.entries()].sort((a, b) => a[1] - b[1] || a[0] - b[0])[0];
       try {
         const wallet = await catWallet(String(cat));
         await db.prepare('INSERT OR IGNORE INTO city_bids (job,taker,agent,cat,wallet,signer,note,created) VALUES (?,?,?,?,?,?,?,?)')

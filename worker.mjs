@@ -142,7 +142,7 @@ const pad = a => '0x' + a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
 export async function ledger(address, days = 7) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address || '')) throw new Error('A 0x address is required.');
   days = Math.max(1, Math.min(14, Number(days) || 7)); const a = address.toLowerCase();
-  const [head] = await rpcBatch([['eth_blockNumber', []]]); const latest = BigInt(head), span = BigInt(Math.ceil(days * 86400 * 9.4)), start = latest > span ? latest - span : 0n;
+  const [head] = await rpcBatch([['eth_blockNumber', []]], OFFICIAL); const latest = BigInt(head), span = BigInt(Math.ceil(days * 86400 * 9.4)), start = latest > span ? latest - span : 0n;
   const step = 9000000n, ranges = []; for (let s = start; s <= latest; s += step) ranges.push([s, s + step - 1n < latest ? s + step - 1n : latest]);
   const hx = x => '0x' + x.toString(16), calls = [];
   for (const [f, t] of ranges) { calls.push(['eth_getLogs', [{address: USDG, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer, pad(a)]}]]); calls.push(['eth_getLogs', [{address: USDG, fromBlock: hx(f), toBlock: hx(t), topics: [T.transfer, null, pad(a)]}]]); }
