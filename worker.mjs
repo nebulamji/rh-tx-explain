@@ -637,8 +637,11 @@ async function fullCheck(address) {
   const isToken = await rpcBatch([['eth_call', [{to: address, data: '0x18160ddd'}, 'latest']]]).then(([r]) => !!r && r !== '0x' && r.length >= 66).catch(() => false);
   const [poison, income, usdg, trail] = await Promise.allSettled([poisonCheck(address), incomeRead(address, 30), ledger(address, 14), isToken ? moneyTrail(address) : Promise.resolve(null)]);
   const v = r => r.status === 'fulfilled' ? r.value : {error: String(r.reason?.message || r.reason).slice(0, 200)};
+  const legs = {poisonCheck: poison, incomeRead: income, usdgLedger14d: usdg, ...(isToken ? {moneyTrail: trail} : {})};
+  const failed = Object.entries(legs).filter(([, r]) => r.status !== 'fulfilled').map(([k]) => k);
   return {address, kind: isToken ? 'token' : 'wallet', checkedAt: new Date().toISOString(), by: 'JazzCat #1 (ERC-8004 #26063), New Jazz City',
-    reads: {poisonCheck: v(poison), incomeRead: v(income), usdgLedger14d: v(usdg), ...(isToken ? {moneyTrail: v(trail)} : {})},
+    complete: failed.length === 0, failedReads: failed,
+    reads: Object.fromEntries(Object.entries(legs).map(([k, r]) => [k, v(r)])),
     note: 'read-only, from Robinhood Chain at the time above. A report, not advice.'};
 }
 const fullReq = resource => ({...ledgerReq(resource), maxAmountRequired: '2700000',
