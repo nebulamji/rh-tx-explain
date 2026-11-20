@@ -95,7 +95,7 @@ export async function cityRound(env, {run, catWallet}) {
   // 3. Deliver for Cats whose pay is locked, or, on x402 jobs (nothing locks), as soon as the Cat is awarded; the city
   //    withholds an x402 result until the poster pays the Cat at the worker's /x402/job/<id>.
   const enrolled = new Set(live.map(c => c.cat));
-  for (const j of (await db.prepare(`SELECT * FROM city_jobs WHERE (status='funded' OR (status='awarded' AND escrow='x402')) AND taker_cat IS NOT NULL AND read IS NOT NULL LIMIT ${MAX_DELIVERIES}`).all()).results) {
+  for (const j of (await db.prepare(`SELECT * FROM city_jobs WHERE (status='funded' OR (status='awarded' AND escrow='x402' AND (fee IS NULL OR fee_tx IS NOT NULL))) AND taker_cat IS NOT NULL AND read IS NOT NULL LIMIT ${MAX_DELIVERIES}`).all()).results) {
     if (!enrolled.has(j.taker_cat) || !run[j.read]) continue;
     try {
       const args = JSON.parse(j.read_args || '{}'), result = await run[j.read][0](new URLSearchParams(args));

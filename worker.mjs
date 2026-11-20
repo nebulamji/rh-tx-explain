@@ -583,7 +583,7 @@ async function chained(rows) {
 async function bookPage(url) {
   const rows = await bookRows(), total = rows.reduce((a, r) => a + r.amount, 0), buyers = new Set(rows.map(r => r.buyer)).size, head = await chained(rows);
   const chains = Object.fromEntries([...new Set(rows.map(r => r.chainId))].map(c => [c, rows.filter(r => r.chainId === c).length]));
-  if (url.pathname === '/book.json') return json({book: BOOK, chainId: CHAIN_ID, receipts: rows.length, head, chains, total, buyers,
+  if (url.pathname.endsWith('.json')) return json({name: 'Jazz receipt chain', contract: BOOK, book: BOOK, chainId: CHAIN_ID, receipts: rows.length, head, chains, total, buyers,
     hashing: 'hash_n = sha256(hash_{n-1}|seq|chainId|payTx|workHash|amount|label), hash_0 = 0x00…00; head = the last hash', rows});
   const tr = rows.map(r => `<tr><td>${r.seq}</td><td>${esc(r.label)}</td><td>${esc(r.amount)} USDG</td><td><a href="${EXPLORER}/address/${r.buyer}">${short(r.buyer)}</a></td><td><a href="${EXPLORER}/tx/${r.payTx}">payment</a></td><td><a href="${EXPLORER}/tx/${r.recordTx}">receipt</a></td></tr>`).join('');
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Book · New Jazz City</title>
@@ -638,7 +638,7 @@ async function paid(req, url, work, reqOf = ledgerReq) {
   const cat = url.searchParams.get('cat'), toCity = CITY_WALLET && await houseCat(cat || '1');
   const seller = toCity ? CITY_WALLET : cat && cat !== '1' ? await catWallet(cat).catch(() => null) : null;
   if (cat && cat !== '1' && !seller) return json({error: 'No JazzCat #' + cat + ' on Robinhood Chain.'}, 404);
-  const base = reqOf(url.origin + url.pathname + url.search), requirement = seller ? {...base, payTo: seller, extra: {name: base.extra.name, version: base.extra.version}} : base;
+  const base = reqOf(url.origin + url.pathname + url.search), requirement = seller ? {...base, payTo: seller, extra: {name: base.extra.name, version: base.extra.version, ...(toCity ? {erc8004: NJC_8004()} : {})}} : base;
   // Base USDC goes to a plain wallet that holds the same key on Base: the city's wallet for house Cats, else the holder.
   const holder = toCity ? CITY_WALLET : await catHolderEOA(cat || '1').catch(() => null);
   const baseReq = holder ? {...requirement, network: 'base', payTo: holder, asset: BASE_USDC, extra: {name: 'USD Coin', version: '2'}} : null, base2 = baseReq && {...v2Of(baseReq), network: 'eip155:8453'};
@@ -670,6 +670,38 @@ async function paid(req, url, work, reqOf = ledgerReq) {
 // its address has no code on Robinhood Chain (a plain wallet holds the same key on both); a Solana taker is paid USDC on
 // Solana. The first settled payment releases the job; the poster re-reads the result at the site with a signature.
 const USDG_CHECKSUM = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', SITE_JOBS = 'https://newjazzcity.pages.dev/api/jobs';
+// One x402 charge for the city's job routes: the price, the payee on each network it accepts, verify, settle. Returns a Response
+// (402 offer or error) or {st, network} once settled. fac (tests) swaps the facilitator and the code read.
+async function x402Charge(req, url, {micro, payTo, solPayTo, description, erc8004}, fac = {}) {
+  const resource = url.origin + url.pathname, sol = !!solPayTo && !payTo;
+  const base = payTo ? {scheme: 'exact', network: 'robinhood', maxAmountRequired: String(micro), resource, description, mimeType: 'application/json',
+    payTo, maxTimeoutSeconds: 300, asset: USDG_CHECKSUM, extra: {name: 'Global Dollar', version: '1', ...(erc8004 ? {erc8004} : {})}} : null;
+  const plain = payTo && (await (fac.code ? fac.code(payTo) : rpcBatch([['eth_getCode', [payTo, 'latest']]], OFFICIAL).then(x => x[0]).catch(() => null))) === '0x';
+  const baseReq = plain ? {...base, network: 'base', asset: BASE_USDC, extra: {name: 'USD Coin', version: '2'}} : null;
+  const solReq = solPayTo ? {scheme: 'exact', network: 'solana', maxAmountRequired: String(micro), resource, description, mimeType: 'application/json',
+    payTo: solPayTo, maxTimeoutSeconds: 300, asset: SOL_USDC, extra: {feePayer: SOL_FEEPAYER}} : null;
+  const v2 = q => q === solReq ? {...v2Of(q), network: SOL_V2} : q === baseReq ? {...v2Of(q), network: 'eip155:8453'} : v2Of(q);
+  const reqs = [base, baseReq, solReq].filter(Boolean);
+  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, accepts: base ? [base, {...base, network: 'eip155:' + CHAIN_ID}, ...reqs.slice(1)] : reqs}),
+    {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: resource, description, mimeType: 'application/json'}, accepts: reqs.map(v2)})}});
+  const header = req.headers.get('x-payment') || req.headers.get('payment-signature');
+  if (!header) return offer('Payment required');
+  let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return offer('Bad payment header'); }
+  const net = payload.accepted?.network ?? payload.network ?? '', onBase = net === 'base' || net === 'eip155:8453', onSol = net === 'solana' || net === SOL_V2;
+  const chosen = onSol ? solReq : onBase ? baseReq : base;
+  if (!chosen) return offer(`Pay on ${reqs.map(r => r.network).join(' or ')}.`);
+  const isV2 = payload.x402Version === 2 || /^(eip155|solana):/.test(net);
+  const body = JSON.stringify(isV2 ? {x402Version: 2, paymentPayload: payload, paymentRequirements: v2(chosen)} : {x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: chosen});
+  const f = fac.url || (onSol || onBase ? BASE_FACILITATOR : FACILITATOR), headers = {'content-type': 'application/json'};
+  const v = await fetch(f + '/verify', {method: 'POST', headers, body}).then(x => x.json()).catch(e => ({isValid: false, invalidReason: e.message}));
+  if (!v.isValid) return offer(v.invalidReason || 'Payment not valid');
+  const st = await fetch(f + '/settle', {method: 'POST', headers, body}).then(x => x.json()).catch(e => ({success: false, errorReason: e.message}));
+  if (!st.success) return offer(st.errorReason || 'Settlement failed');
+  const network = onSol ? 'solana' : onBase ? 'base' : 'robinhood';
+  return {st, network, paidTo: chosen.payTo, tx: st.transaction ? (network === 'robinhood' ? '' : network + ':') + st.transaction : null};
+}
+const NJC_8004 = () => ({registry: 'eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432', agentId: String(NJC_ID || 26221), delegation: null});
+
 async function paidJob(req, url, env, id, fac = {}) {
   const j = env.QDB && await env.QDB.prepare('SELECT * FROM city_jobs WHERE id=?').bind(id).first();
   if (!j || j.escrow !== 'x402') return json({error: 'No x402 job with that id.'}, 404);
@@ -677,37 +709,32 @@ async function paidJob(req, url, env, id, fac = {}) {
   if (j.status !== 'delivered') return json({error: `Nothing to pay for yet: the job is ${j.status}.`, job: id}, 409);
   const r = await env.QDB.prepare('SELECT body, hash FROM city_results WHERE job=?').bind(id).first();
   if (!r) return json({error: 'The delivery is missing.'}, 409);
-  const sol = !/^0x/.test(j.taker_wallet), resource = url.origin + url.pathname;
-  const base = {scheme: 'exact', network: 'robinhood', maxAmountRequired: String(Math.round(Number(j.amount) * 1e6)), resource,
-    description: `New Jazz City job ${id}: ${j.title}. Paid straight to the agent that did it; the result comes back.`, mimeType: 'application/json',
-    payTo: j.taker_wallet, maxTimeoutSeconds: 300, asset: USDG_CHECKSUM, extra: {name: 'Global Dollar', version: '1'}};
-  const plain = !sol && (await (fac.code ? fac.code(j.taker_wallet) : rpcBatch([['eth_getCode', [j.taker_wallet, 'latest']]], OFFICIAL).then(x => x[0]).catch(() => null))) === '0x';
-  const baseReq = plain ? {...base, network: 'base', asset: BASE_USDC, extra: {name: 'USD Coin', version: '2'}} : null;
-  const solReq = sol ? {...base, network: 'solana', asset: SOL_USDC, extra: {feePayer: SOL_FEEPAYER}} : null;
-  const v2 = q => q === solReq ? {...v2Of(q), network: SOL_V2} : q === baseReq ? {...v2Of(q), network: 'eip155:8453'} : v2Of(q);
-  const reqs = sol ? [solReq] : [base, ...(baseReq ? [baseReq] : [])];
-  const offer = (error, status = 402) => new Response(JSON.stringify({x402Version: 1, error, job: id, accepts: sol ? reqs : [base, {...base, network: 'eip155:' + CHAIN_ID}, ...reqs.slice(1)]}),
-    {status, headers: {...H402, 'payment-required': b64({x402Version: 2, error, resource: {url: resource, description: base.description, mimeType: 'application/json'}, accepts: reqs.map(v2)})}});
-  const header = req.headers.get('x-payment') || req.headers.get('payment-signature');
-  if (!header) return offer('Payment required');
-  let payload; try { payload = JSON.parse(decodeURIComponent(escape(atob(header)))); } catch { return offer('Bad payment header'); }
-  const net = payload.accepted?.network ?? payload.network ?? '', onBase = net === 'base' || net === 'eip155:8453', onSol = net === 'solana' || net === SOL_V2;
-  if (sol !== onSol || (onBase && !baseReq)) return offer(sol ? 'This job pays a Solana wallet: pay USDC on Solana.' : `Pay on ${baseReq ? 'Robinhood Chain or Base' : 'Robinhood Chain'}.`);
-  const chosen = onSol ? solReq : onBase ? baseReq : base, isV2 = payload.x402Version === 2 || /^(eip155|solana):/.test(net);
-  const body = JSON.stringify(isV2 ? {x402Version: 2, paymentPayload: payload, paymentRequirements: v2(chosen)} : {x402Version: payload.x402Version ?? 1, paymentPayload: payload, paymentRequirements: chosen});
-  const f = fac.url || (onSol || onBase ? BASE_FACILITATOR : FACILITATOR), headers = {'content-type': 'application/json'};
-  const v = await fetch(f + '/verify', {method: 'POST', headers, body}).then(x => x.json()).catch(e => ({isValid: false, invalidReason: e.message}));
-  if (!v.isValid) return offer(v.invalidReason || 'Payment not valid');
-  const st = await fetch(f + '/settle', {method: 'POST', headers, body}).then(x => x.json()).catch(e => ({success: false, errorReason: e.message}));
-  if (!st.success) return offer(st.errorReason || 'Settlement failed');
-  // release_tx names its chain when it isn't Robinhood Chain ("base:0x…", "solana:<signature>"), so the Book can record it.
-  const releaseTx = st.transaction ? (onSol ? 'solana:' : onBase ? 'base:' : '') + st.transaction : null;
-  await env.QDB.prepare("UPDATE city_jobs SET status='released', release_tx=?, updated=? WHERE id=? AND status='delivered'").bind(releaseTx, Date.now(), id).run();
+  const sol = !/^0x/.test(j.taker_wallet);
+  const paid = await x402Charge(req, url, {micro: Math.round(Number(j.amount) * 1e6), payTo: sol ? null : j.taker_wallet, solPayTo: sol ? j.taker_wallet : null,
+    description: `New Jazz City job ${id}: ${j.title}. Paid straight to the agent that did it; the result comes back.`}, fac);
+  if (paid instanceof Response) return paid;
+  await env.QDB.prepare("UPDATE city_jobs SET status='released', release_tx=?, updated=? WHERE id=? AND status='delivered'").bind(paid.tx, Date.now(), id).run();
   let result = r.body; try { result = JSON.parse(r.body); } catch {}
-  return new Response(JSON.stringify({job: id, title: j.title, resultHash: r.hash, result, payment: {tx: st.transaction, payer: st.payer, paidTo: chosen.payTo, network: onSol ? 'solana' : onBase ? 'base' : 'robinhood'}}),
-    {headers: {...H402, 'x-payment-response': b64(st), 'payment-response': b64(st)}});
+  return new Response(JSON.stringify({job: id, title: j.title, resultHash: r.hash, result, payment: {tx: paid.st.transaction, payer: paid.st.payer, paidTo: paid.paidTo, network: paid.network}}),
+    {headers: {...H402, 'x-payment-response': b64(paid.st), 'payment-response': b64(paid.st)}});
 }
-export {paidJob};
+// The city's fee on an x402 job, paid by the poster when it awards a taker: its own x402 payment to New Jazz City (agent
+// #26221), as BrainChain is paid per grade. The taker delivers once it settles. Not charged on jobs the city posts itself.
+async function paidAward(req, url, env, id, fac = {}) {
+  const j = env.QDB && await env.QDB.prepare('SELECT * FROM city_jobs WHERE id=?').bind(id).first();
+  if (!j || j.escrow !== 'x402') return json({error: 'No x402 job with that id.'}, 404);
+  if (!j.fee) return json({error: 'This job carries no city fee.', job: id}, 409);
+  if (j.fee_tx) return json({error: 'The city fee is paid.', job: id, feeTx: j.fee_tx}, 409);
+  if (!['awarded', 'delivered'].includes(j.status)) return json({error: `Award a taker first: the job is ${j.status}.`, job: id}, 409);
+  const city = CITY_WALLET || '0x0C0B48Beba6c89CE591b0092B1F5EA83481D2906';
+  const paid = await x402Charge(req, url, {micro: Math.round(Number(j.fee) * 1e6), payTo: city, solPayTo: SOL_PAYTO, erc8004: NJC_8004(),
+    description: `New Jazz City's fee for job ${id} (${j.title}): ${j.fee} USD. The taker is paid separately, in full, on delivery.`}, fac);
+  if (paid instanceof Response) return paid;
+  await env.QDB.prepare('UPDATE city_jobs SET fee_tx=?, updated=? WHERE id=? AND fee_tx IS NULL').bind(paid.tx, Date.now(), id).run();
+  return new Response(JSON.stringify({job: id, cityFee: {amount: j.fee, tx: paid.st.transaction, network: paid.network, paidTo: paid.paidTo},
+    next: `The taker delivers now; then the poster pays ${url.origin}/x402/job/${id} to the taker and gets the result.`}), {headers: {...H402, 'x-payment-response': b64(paid.st), 'payment-response': b64(paid.st)}});
+}
+export {paidJob, paidAward};
 
 // Full check: one address, every read that applies, in one paid call. Poison check (look-alikes in its history), income by
 // payer (30 days), USDG ledger (14 days), and the money trail when the address is a token. 2.70 USDG, 10% under a record
@@ -801,6 +828,10 @@ const CONTROL_TOOL = {name: 'who_controls_agent', title: 'Who controls an ERC-80
 // Trade and launch on QHooks through New Jazz City: QHooks prepares the unsigned plan and the city is named as the referrer,
 // so QHooks credits it 20% of its own router fee. The trader pays the same either way; the trader's wallet signs.
 const QHOOKS_MCP = 'https://qhooks.com/mcp?ref=newjazzcity';
+// $JAZZ, once live (JAZZ_TOKEN): an unsigned buy through QHooks for the caller's own wallet, New Jazz City as referrer.
+let JAZZ_TOKEN = null;
+const BUY_JAZZ = {name: 'buy_jazz', title: 'Buy $JAZZ, the coin of the work layer (unsigned plan)', description: 'Free. Prepares an unsigned buy of $JAZZ on Robinhood Chain for your own wallet to sign, paid in USDG. Every settled Jazz job buys and burns $JAZZ.',
+  inputSchema: {type: 'object', properties: {usdg: {type: 'string', description: 'USDG to spend, e.g. "5"'}, trader: {type: 'string', description: 'the wallet that will sign'}, slippageBps: {type: 'integer'}}, required: ['usdg', 'trader']}};
 const QHOOKS_TOOLS = [
   {name: 'qhooks_trade', title: 'Trade a token on QHooks (unsigned plan)', description: 'Free. QHooks prepares an unsigned buy or sell for your own wallet to sign, on Robinhood Chain, Base, Ethereum, Arbitrum, BNB, Elysium or Solana. Same price and fees as trading on QHooks directly; New Jazz City is named as the referrer. amountIn is in raw units of the input currency.',
     inputSchema: {type: 'object', properties: {chain: {type: 'string', description: 'e.g. 4663 for Robinhood Chain'}, token: {type: 'string'}, side: {type: 'string', enum: ['buy', 'sell']},
@@ -981,7 +1012,7 @@ function llmsTxt(origin) {
     `- [Jobs board](${origin}/jobs?format=json): open paid jobs across agent boards (Claus Jobs, BasedAgents, Flow's desk, Priors' line board, BatchDesk), for any Cat`,
     `- MCP (Streamable HTTP, POST): ${origin}/mcp`, ``,
     `## Track record`,
-    `- [The Book](${origin}/book.json): every paid delivery, recorded on chain in ReceiptBook ${BOOK.toLowerCase()} with its payment tx and work hash.`].join('\n');
+    `- [Receipt chain](${origin}/chain.json): every paid job and call, in order, recorded on Robinhood Chain (contract ${BOOK.toLowerCase()}) with its payment tx, the chain it settled on and the work hash; each row hashed with the one before into one head.`].join('\n');
 }
 function agentCard(origin) {
   return {name: 'JazzCat #1 · New Jazz City reads', description: 'Chain reads for agents, verdict first, paid per call over x402.', url: origin,
@@ -1035,7 +1066,7 @@ async function catGuard(req, env) {
 
 export default {
   async fetch(req, env, ctx) {
-    PRIORS_KEY = env.PRIORS_KEY || null; CITY_WALLET = /^0x[0-9a-fA-F]{40}$/.test(env.CITY_WALLET || '') ? env.CITY_WALLET : null; NJC_ID = Number(env.NJC_AGENT_ID) || null;
+    PRIORS_KEY = env.PRIORS_KEY || null; CITY_WALLET = /^0x[0-9a-fA-F]{40}$/.test(env.CITY_WALLET || '') ? env.CITY_WALLET : null; NJC_ID = Number(env.NJC_AGENT_ID) || null; JAZZ_TOKEN = /^0x[0-9a-fA-F]{40}$/.test(env.JAZZ_TOKEN || '') ? env.JAZZ_TOKEN : null;
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, {headers: {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST'}});
     if (url.pathname === '/cat/guard' && req.method === 'POST') return catGuard(req, env);
@@ -1052,6 +1083,8 @@ export default {
     if (url.pathname === '/mcp' && req.method === 'POST') count(env, ctx, 'mcp');
     const jobMatch = url.pathname.match(/^\/x402\/job\/([0-9a-f]{12})$/);
     if (jobMatch && req.method === 'GET') return paidJob(req, url, env, jobMatch[1]);
+    const awardMatch = url.pathname.match(/^\/x402\/award\/([0-9a-f]{12})$/);
+    if (awardMatch && req.method === 'GET') return paidAward(req, url, env, awardMatch[1]);
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
     if (url.pathname === '/agents/njc.json') return json(NJC_CARD());
@@ -1061,7 +1094,7 @@ export default {
     }
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
-    if ((url.pathname === '/book' || url.pathname === '/book.json') && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
+    if (['/book', '/book.json', '/chain', '/chain.json'].includes(url.pathname) && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) if (!k.name.startsWith('desk:') && !k.name.startsWith('receipt:') && !k.name.startsWith('launches:')) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
     { const r = url.pathname.match(/^\/receipt\/(0x[0-9a-fA-F]{64})$/); if (r && req.method === 'GET' && env?.USAGE) { const v = await env.USAGE.get('receipt:' + r[1].toLowerCase());
@@ -1112,7 +1145,15 @@ export default {
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
     if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...CITY_JOB_TOOLS, ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...CITY_JOB_TOOLS, ...(JAZZ_TOKEN ? [BUY_JAZZ] : []), ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/call' && m.params?.name === BUY_JAZZ.name) {
+      const a = m.params.arguments || {}; count(env, ctx, 'mcp-buy_jazz');
+      if (!JAZZ_TOKEN) return ok({content: [{type: 'text', text: '$JAZZ is not live yet.'}], isError: true});
+      const usdg = Number(a.usdg);
+      if (!(usdg > 0)) return ok({content: [{type: 'text', text: 'usdg is the USDG to spend, e.g. "5".'}], isError: true});
+      return ok(await qhooksCall('prepare_trade', {chain: '4663', token: JAZZ_TOKEN, side: 'buy', amountIn: String(Math.round(usdg * 1e6)), trader: a.trader,
+        ...(a.slippageBps != null ? {slippageBps: a.slippageBps} : {}), referrer: CITY_WALLET || NJC_TREASURY}));
+    }
     if (m.method === 'tools/call' && QHOOKS_TOOLS.some(t => t.name === m.params?.name)) {
       const a = m.params.arguments || {}, referrer = CITY_WALLET || NJC_TREASURY; count(env, ctx, 'mcp-' + m.params.name);
       const res = m.params.name === 'qhooks_trade'
