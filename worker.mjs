@@ -570,9 +570,21 @@ async function bookRows() {
       chainId: Number(BigInt('0x' + w(1))), payTx: '0x' + w(2), workHash: '0x' + w(3), label: utf8(d.slice(off + 64, off + 64 + len)), recordTx: l.transactionHash};
   }).sort((a, b) => a.seq - b.seq);
 }
+// Each row is hashed with the one before it, so the whole book folds into one head: change any row and every hash after it
+// changes. hash_n = sha256(hash_{n-1} | seq | chainId | payTx | workHash | amount | label); hash_0 = 32 zero bytes.
+async function chained(rows) {
+  let prev = '0x' + '0'.repeat(64);
+  for (const r of rows) {
+    const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode([prev, r.seq, r.chainId, r.payTx, r.workHash, r.amount, r.label].join('|')));
+    r.prev = prev; r.hash = prev = '0x' + [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return prev;
+}
 async function bookPage(url) {
-  const rows = await bookRows(), total = rows.reduce((a, r) => a + r.amount, 0), buyers = new Set(rows.map(r => r.buyer)).size;
-  if (url.pathname === '/book.json') return json({book: BOOK, chainId: CHAIN_ID, receipts: rows.length, total, buyers, rows});
+  const rows = await bookRows(), total = rows.reduce((a, r) => a + r.amount, 0), buyers = new Set(rows.map(r => r.buyer)).size, head = await chained(rows);
+  const chains = Object.fromEntries([...new Set(rows.map(r => r.chainId))].map(c => [c, rows.filter(r => r.chainId === c).length]));
+  if (url.pathname === '/book.json') return json({book: BOOK, chainId: CHAIN_ID, receipts: rows.length, head, chains, total, buyers,
+    hashing: 'hash_n = sha256(hash_{n-1}|seq|chainId|payTx|workHash|amount|label), hash_0 = 0x00…00; head = the last hash', rows});
   const tr = rows.map(r => `<tr><td>${r.seq}</td><td>${esc(r.label)}</td><td>${esc(r.amount)} USDG</td><td><a href="${EXPLORER}/address/${r.buyer}">${short(r.buyer)}</a></td><td><a href="${EXPLORER}/tx/${r.payTx}">payment</a></td><td><a href="${EXPLORER}/tx/${r.recordTx}">receipt</a></td></tr>`).join('');
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Book · New Jazz City</title>
 <style>:root{--bg:#0b0b10;--fg:#e9e6ff;--mute:#9a95b8;--line:#2a2840;--acc:#6ee7ff}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,sans-serif}main{max-width:900px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}p{color:var(--mute);margin:4px 0 16px}table{width:100%;border-collapse:collapse}td,th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mute);font-weight:500}a{color:var(--acc)}.wrap{overflow-x:auto}</style></head>
