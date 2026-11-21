@@ -5,6 +5,7 @@ import {poisonCheck} from './poison.mjs';
 import {incomeRead} from './income.mjs';
 import {cityRound} from './city.mjs';
 import {creditFile} from './credit.mjs';
+import {checkup} from './checkup.mjs';
 import PRIORS_TRAIL from './trails/0xedbf91223639800bcd5756815caf908df3b890be.json' with {type: 'json'};
 const TRAILS = {'0xedbf91223639800bcd5756815caf908df3b890be': PRIORS_TRAIL}; // heavy coins, read once
 // Robinhood Chain transaction explainer: give it a transaction hash, get a short plain-language summary of what happened.
@@ -876,6 +877,21 @@ const QHOOKS_MCP = 'https://qhooks.com/mcp?ref=newjazzcity';
 let JAZZ_TOKEN = null;
 const BUY_JAZZ = {name: 'buy_jazz', title: 'Buy $JAZZ, the coin of the work layer (unsigned plan)', description: 'Free. Prepares an unsigned buy of $JAZZ on Robinhood Chain for your own wallet to sign, paid in USDG. Every settled Jazz job buys and burns $JAZZ.',
   inputSchema: {type: 'object', properties: {usdg: {type: 'string', description: 'USDG to spend, e.g. "5"'}, trader: {type: 'string', description: 'the wallet that will sign'}, slippageBps: {type: 'integer'}}, required: ['usdg', 'trader']}};
+// Free: the agent check-up (planted orders, hidden characters, look-alike addresses, risky tools) for any skill, memory
+// note, MCP config or tool description. Text in, or an https URL to a public file.
+const CHECKUP_TOOL = {name: 'agent_checkup', title: 'Check an agent\'s instructions, skills, MCP config or tool descriptions for poisoning',
+  description: 'Free. Reads text or a public https file and reports what could turn the agent against its owner: planted orders (ignore-the-rules, standing rules to pay or report, secrecy, asks for keys), hidden characters, look-alike addresses (address poisoning) and tools that pay or sign without asking. BLOCK / REVIEW / CLEAR with file and line. Never echoes secrets.',
+  inputSchema: {type: 'object', properties: {text: {type: 'string'}, url: {type: 'string', description: 'https URL of a public file (skill.md, llms.txt, an MCP config)'}, expect: {type: 'array', items: {type: 'string'}, description: 'addresses the agent should pay; anything else is flagged'}, mode: {type: 'string', enum: ['agent', 'docs'], description: 'agent (default): its own instructions and memory; docs: a service\'s public documentation'}}}};
+async function checkupFrom(a = {}) {
+  let files = Array.isArray(a.files) ? a.files : a.text ? [{name: a.name || 'text', content: a.text}] : [];
+  if (!files.length && a.url) {
+    if (!/^https:\/\//.test(a.url)) throw new Error('url must be https');
+    const r = await fetch(a.url, {headers: {accept: 'text/plain, application/json, text/markdown, */*'}, signal: AbortSignal.timeout(15000)});
+    if (!r.ok) throw new Error(`the file answered ${r.status}`);
+    files = [{name: a.url, content: (await r.text()).slice(0, 200_000)}];
+  }
+  return checkup(files, {expect: Array.isArray(a.expect) ? a.expect : [], mode: a.mode === 'docs' ? 'docs' : 'agent'});
+}
 const QHOOKS_TOOLS = [
   {name: 'qhooks_trade', title: 'Trade a token on QHooks (unsigned plan)', description: 'Free. QHooks prepares an unsigned buy or sell for your own wallet to sign, on Robinhood Chain, Base, Ethereum, Arbitrum, BNB, Elysium or Solana. Same price and fees as trading on QHooks directly; New Jazz City is named as the referrer. amountIn is in raw units of the input currency.',
     inputSchema: {type: 'object', properties: {chain: {type: 'string', description: 'e.g. 4663 for Robinhood Chain'}, token: {type: 'string'}, side: {type: 'string', enum: ['buy', 'sell']},
@@ -1141,6 +1157,15 @@ export default {
     }
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
+    if (url.pathname === '/checkup' && (req.method === 'POST' || req.method === 'GET')) {
+      count(env, ctx, 'checkup');
+      const a = req.method === 'POST' ? await req.json().catch(() => ({})) : {url: url.searchParams.get('url'), text: url.searchParams.get('text'), mode: url.searchParams.get('mode')};
+      try { return json(await checkupFrom(a)); } catch (e) { return json({error: e.message}, 400); }
+    }
+    if (url.pathname === '/checkups' && req.method === 'GET') {
+      const last = await env.USAGE.get('checkups:latest');
+      return last ? new Response(last, {headers: {'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=300'}}) : json({error: 'No sweep yet.'}, 404);
+    }
     if (url.pathname === '/city-ledger' && req.method === 'GET') {
       try { return json(await cityLedger()); } catch (e) { return json({error: e.message}, 502); }
     }
@@ -1195,7 +1220,12 @@ export default {
     if (m.id === undefined) return new Response(null, {status: 202});
     const ok = result => json({jsonrpc: '2.0', id: m.id, result});
     if (m.method === 'initialize') return ok({protocolVersion: m.params?.protocolVersion ?? '2025-03-26', capabilities: {tools: {}}, serverInfo: {name: 'rh-tx-explain (JazzCat #1, New Jazz City)', version: '0.2.0'}});
-    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, JOBS_TOOL, ...CITY_JOB_TOOLS, ...(JAZZ_TOKEN ? [BUY_JAZZ] : []), ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/list') return ok({tools: [TOOL, CONTROL_TOOL, CHECKUP_TOOL, JOBS_TOOL, ...CITY_JOB_TOOLS, ...(JAZZ_TOKEN ? [BUY_JAZZ] : []), ...QHOOKS_TOOLS, ...PAID_TOOLS.map(t => marketLink(t.route) ? {...t, description: `${t.description} Canonical checkout: ${marketLink(t.route)} (agents4663, refund if the read fails).`} : t)]});
+    if (m.method === 'tools/call' && m.params?.name === CHECKUP_TOOL.name) {
+      count(env, ctx, 'mcp-agent_checkup');
+      try { const r = await checkupFrom(m.params.arguments); return ok({content: [{type: 'text', text: `${r.verdict}: ${r.high} high, ${r.medium} medium. ` + r.findings.slice(0, 12).map(f => `${f.severity} ${f.file}:${f.line} ${f.finding}`).join('; ')}], structuredContent: r}); }
+      catch (e) { return ok({content: [{type: 'text', text: e.message}], isError: true}); }
+    }
     if (m.method === 'tools/call' && m.params?.name === BUY_JAZZ.name) {
       const a = m.params.arguments || {}; count(env, ctx, 'mcp-buy_jazz');
       if (!JAZZ_TOKEN) return ok({content: [{type: 'text', text: '$JAZZ is not live yet.'}], isError: true});
