@@ -3,6 +3,7 @@
 // (Priors pool), swap proceeds (DEX routers and pool managers), and outside payers. Outside payers are the income; the rest is not. Reads Robinhood Chain only.
 // The official RPC refuses Cloudflare's servers, so the deployed worker reads it through the read-only proxy (same as worker.mjs OFFICIAL).
 const RPC = globalThis.NJC_LOCAL ? 'https://rpc.mainnet.chain.robinhood.com' : 'https://njc-read-proxy.vercel.app/api/rpc', REGISTRY = '0x8004a169fb4a3325136eb29fa0ceb6d2e539a432';
+const RELATED = new Set(['0x0c0b48beba6c89ce591b0092b1f5ea83481d2906', '0xb7e507034618e122aef4a032d1678453b3c9f60b', '0x1479be07e26976fd712db34f7bc1b8ac523f806e']);
 const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168', TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const KNOWN = {'0x281210097f0de7a8fb6f87310af0f089c9c8de21': 'loan', '0x8366a39cc670b4001a1121b8f6a443a643e40951': 'swap',
   '0xbdbae060cbab0e9cfe802a7513dd5ecb36cda6c3': 'swap', '0xe8852602f84e04e284286d8db01a41edd0ccefb0': 'swap', '0x8876789976decbfcbbbe364623c63652db8c0904': 'swap'};
@@ -48,7 +49,8 @@ export async function incomeRead(target, days = 30) {
     const key = selfStarted ? 'withdrawal:' + from : from, v = Number(BigInt(l.data)) / 1e6, r = by.get(key) || {payer: from, usdg: 0, transfers: 0, lastTx: null, selfStarted};
     r.usdg += v; r.transfers++; r.lastTx = l.transactionHash; by.set(key, r);
   }
-  const kind = r => own.has(r.payer) ? 'own' : r.selfStarted ? 'withdrawal' : KNOWN[r.payer] || 'outside';
+  // New Jazz City and its house wallets pay the house Cats and each other: related party, never outside income.
+  const kind = r => own.has(r.payer) ? 'own' : r.selfStarted ? 'withdrawal' : RELATED.has(r.payer) ? 'related' : KNOWN[r.payer] || 'outside';
   const rows = [...by.values()].map(({selfStarted, ...r}) => ({...r, usdg: Math.round(r.usdg * 1e4) / 1e4, kind: kind({...r, selfStarted})})).sort((a, b) => b.usdg - a.usdg);
   const sum = k => Math.round(rows.filter(r => r.kind === k).reduce((s, r) => s + r.usdg, 0) * 1e4) / 1e4, n = k => rows.filter(r => r.kind === k).length;
   const outside = rows.filter(r => r.kind === 'outside'), top = outside[0], topShare = top && sum('outside') ? Math.round(top.usdg / sum('outside') * 1000) / 10 : 0;
@@ -58,7 +60,7 @@ export async function incomeRead(target, days = 30) {
   if (sum('withdrawal')) flags.push(`${sum('withdrawal')} USDG arrived in transactions the agent's own wallet sent (withdrawals, refunds, claims or sales through contracts): not outside pay. Earned fees or escrow it claimed are income; its own deposits coming back are not. A funder trace tells which`);
   if (topShare >= 50) flags.push(`one outside payer is ${topShare}% of outside income`);
   return {chainId: 4663, agentId, wallet, days, window: {fromBlock: Number(from), toBlock: Number(latest)},
-    income: {outsideUsdg: sum('outside'), outsidePayers: n('outside')}, notIncome: {ownUsdg: sum('own'), withdrawalUsdg: sum('withdrawal'), loanUsdg: sum('loan'), swapUsdg: sum('swap')},
+    income: {outsideUsdg: sum('outside'), outsidePayers: n('outside')}, notIncome: {ownUsdg: sum('own'), withdrawalUsdg: sum('withdrawal'), loanUsdg: sum('loan'), swapUsdg: sum('swap'), relatedPartyUsdg: sum('related')},
     payers: rows.slice(0, 40), flags, verdict: `${sum('outside')} USDG from ${n('outside')} outside payers in ${days} days`,
     note: 'Outside payers can still be related to the agent off chain; a funder trace reads where their USDG came from.',
     by: 'JazzCat #1 (agent #26063), New Jazz City: read from Robinhood Chain'};

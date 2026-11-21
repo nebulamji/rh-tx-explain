@@ -287,6 +287,16 @@ export async function moneyTrail(token) {
 // NYSE, NYSE American and Nasdaq names; Nasdaq Trader is the second listing source), next to the issuer-relayed oracle row.
 // An independent witness for any hook, desk or agent that trades Stock Tokens. 0.25 USDG to the Cat.
 const HALT_PRICE = '250000', HARMONIC_EQ = 'https://harmonicagent.solutions/api/oracle/equities';
+const riffReq = resource => ({...ledgerReq(resource), maxAmountRequired: '10000',
+  description: "A riff: one bar from a JazzCat about any Robinhood Chain coin, read from its money trail (who launched it, launch-block buyers, the launcher's share, the biggest wallet). 0.01 USDG. The full trail is /x402/money-trail.",
+  outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/riff?token={token}', queryParams: {token: {type: 'string', description: 'Robinhood Chain token'}}}}});
+async function riff(token, cat) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(token || '')) throw new Error('token=0x… is required');
+  const t = token.toLowerCase(), key = new Request('https://coin.cache/' + t), hit = await caches.default.match(key);
+  const h = hit ? await hit.json() : coinHeadline(TRAILS[t] ?? await moneyTrail(t));
+  const bar = `$${h.symbol}: minted ${h.minted}; ${h.launchBlockBuyers ? `${h.launchBlockBuyers} launch-block buyers took ${h.launchBlockPct}%, ${h.stillHolding} still hold` : 'no launch-block buyers besides the launcher'}; the launcher holds ${h.launcherPct}%${h.topWallet ? `; the biggest plain wallet holds ${h.topWallet.pct}%` : ''}.`;
+  return {riff: bar, by: 'JazzCat #' + (cat || 1), token: t, flags: h.flags, full: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/money-trail?token=' + t};
+}
 const haltReq = resource => ({...ledgerReq(resource), maxAmountRequired: HALT_PRICE,
   description: "Halt check for a Stock Token's underlying: the exchanges' own halt lists (NYSE + Nasdaq), reason, since, resumption, against the issuer-relayed oracle row. Independent witness, read by JazzCat #1.",
   outputSchema: {input: {type: 'http', method: 'GET', discoverable: true, resourceTemplate: 'https://njc-tx-explain.departmentofjazz.workers.dev/x402/halt-check?symbol={symbol}', queryParams: {symbol: {type: 'string', description: 'ticker, e.g. AAPL'}}}}});
@@ -579,6 +589,17 @@ async function chained(rows) {
     r.prev = prev; r.hash = prev = '0x' + [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
   return prev;
+}
+// Cat ↔ City: every USDG transfer between New Jazz City (2906), the house wallet and the house Cat #1, read from the chain
+// and tagged related party. These never count as anyone's outside income (credit files, the City Score).
+const RELATED_WALLETS = ['0x0c0b48beba6c89ce591b0092b1f5ea83481d2906', '0xb7e507034618e122aef4a032d1678453b3c9f60b', '0x1479be07e26976fd712db34f7bc1b8ac523f806e'];
+async function cityLedger() {
+  const [head] = await rpcBatch([['eth_blockNumber', []]], OFFICIAL), latest = BigInt(head), from = latest > 9_000_000n ? latest - 9_000_000n : 0n;
+  const pads = RELATED_WALLETS.map(a => '0x' + a.slice(2).padStart(64, '0'));
+  const [logs] = await rpcBatch([['eth_getLogs', [{address: USDG, fromBlock: '0x' + from.toString(16), toBlock: 'latest', topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', pads, pads]}]]], OFFICIAL);
+  const name = {[RELATED_WALLETS[0]]: 'New Jazz City (2906)', [RELATED_WALLETS[1]]: 'house wallet', [RELATED_WALLETS[2]]: 'JazzCat #1'};
+  const rows = (logs || []).map(l => ({from: name['0x' + l.topics[1].slice(26)], to: name['0x' + l.topics[2].slice(26)], usdg: Number(BigInt(l.data)) / 1e6, tx: l.transactionHash, block: Number(BigInt(l.blockNumber))})).reverse();
+  return {kind: 'related-party', wallets: name, note: 'Payments between New Jazz City and its own wallets and house Cats. Disclosed; never counted as outside income.', rows};
 }
 async function bookPage(url) {
   const rows = await bookRows(), total = rows.reduce((a, r) => a + r.amount, 0), buyers = new Set(rows.map(r => r.buyer)).size, head = await chained(rows);
@@ -908,6 +929,8 @@ const cityOpenJobs = () => fetch(CITY_JOBS + '?status=open').then(x => x.json())
 // KB 11-20: the agents4663 market is retired. Buyers check out on the Cat's own x402 routes, paid straight to the Cat.
 const marketLink = () => null;
 const PAID_TOOLS = [
+  {name: 'riff', route: 'riff', price: '0.01', title: 'A riff: one bar about a Robinhood Chain coin', description: 'Paid, 0.01 USDG over x402: one line from a JazzCat about a coin\'s money trail (launch-block buyers, the launcher\'s share, the biggest wallet). Returns the x402 payment link; the full read is money_trail.',
+    inputSchema: {type: 'object', properties: {token: {type: 'string'}}, required: ['token']}},
   {name: 'money_trail', route: 'money-trail', price: '0.9', title: 'Money trail for a Robinhood Chain coin', description: 'Paid, 0.90 USDG over x402: who launched a coin and through what, where the supply went, launch-block buyers, top holders. Returns the x402 payment link; call it with payment for the read.',
     inputSchema: {type: 'object', properties: {token: {type: 'string', description: 'coin contract 0x…'}}, required: ['token']}},
   {name: 'line_read', route: 'line-read', price: '0.9', title: 'Credit-line read for an agent', description: 'Paid, 0.90 USDG over x402: before a lender opens a line, who holds the ERC-8004 agent and since when, its wallet, USDG history and the vault line. Returns the x402 payment link.',
@@ -1108,6 +1131,7 @@ export default {
     if (jobMatch && req.method === 'GET') return paidJob(req, url, env, jobMatch[1]);
     const awardMatch = url.pathname.match(/^\/x402\/award\/([0-9a-f]{12})$/);
     if (awardMatch && req.method === 'GET') return paidAward(req, url, env, awardMatch[1]);
+    if (url.pathname === '/x402/riff' && req.method === 'GET') return paid(req, url, () => riff(url.searchParams.get('token'), url.searchParams.get('cat')), riffReq);
     if (url.pathname === '/x402/ledger' && req.method === 'GET') return paid(req, url, () => ledger(url.searchParams.get('address'), url.searchParams.get('days')));
     if (url.pathname === '/agents/cat1.json') return json(CAT1_CARD);
     if (url.pathname === '/agents/njc.json') return json(NJC_CARD());
@@ -1117,6 +1141,9 @@ export default {
     }
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
+    if (url.pathname === '/city-ledger' && req.method === 'GET') {
+      try { return json(await cityLedger()); } catch (e) { return json({error: e.message}, 502); }
+    }
     if (['/book', '/book.json', '/chain', '/chain.json'].includes(url.pathname) && req.method === 'GET') { count(env, ctx, 'book'); try { return await bookPage(url); } catch (e) { return json({error: e.message}, 502); } }
     if (url.pathname === '/coin' && req.method === 'GET') { count(env, ctx, 'coin'); try { return await coinPage(url, env, ctx); } catch (e) { return json({error: e.message}, 400); } }
     if (url.pathname === '/stats' && env?.USAGE) { const out = {}; let cursor; do { const l = await env.USAGE.list({cursor}); for (const k of l.keys) if (!k.name.startsWith('desk:') && !k.name.startsWith('receipt:') && !k.name.startsWith('launches:')) out[k.name] = Number(await env.USAGE.get(k.name)); cursor = l.list_complete ? null : l.cursor; } while (cursor); return json(out); }
