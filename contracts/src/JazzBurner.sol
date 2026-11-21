@@ -58,6 +58,10 @@ contract JazzBurner {
         }
         burned = jazz.balanceOf(address(this));
         if (burned > 0) jazz.transfer(DEAD, burned);
-        emit Burned(msg.sender, usdgIn, burned, receipts.count(), receipts.head());
+        // The first receipt book has a count and no head; the receipt chain has both. Name whatever it has.
+        uint64 n; bytes32 h;
+        try receipts.count() returns (uint64 c) { n = c; } catch {}
+        try receipts.head() returns (bytes32 x) { h = x; } catch {}
+        emit Burned(msg.sender, usdgIn, burned, n, h);
     }
 }

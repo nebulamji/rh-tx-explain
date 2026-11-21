@@ -13,6 +13,7 @@ contract Router { Tok usdg; Tok jazz; constructor(Tok u, Tok j) { usdg = u; jazz
   function buy(uint256 amountIn, uint256 out) external { usdg.transferFrom(msg.sender, address(this), amountIn); jazz.mint(msg.sender, out); } }
 
 contract Chain { uint64 public count = 97; bytes32 public head = bytes32(uint256(0xe98a)); }
+contract OldBook { uint64 public count = 96; }
 contract JazzBurnerTest {
   Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
   function test_burnerSwapsUnderCapBurnsAllAndNamesTheChain() public {
@@ -29,5 +30,11 @@ contract JazzBurnerTest {
     vm.expectRevert(JazzBurner.SwapFailed.selector); b.burn(1e6, 0, abi.encodeCall(Router.buy, (5e6, 1))); // the exact approval stops an overspend
     vm.expectRevert(JazzBurner.TooLittle.selector); b.burn(1e6, 10e18, abi.encodeCall(Router.buy, (1e6, 1e18)));
     vm.prank(address(0xBAD)); vm.expectRevert(JazzBurner.NotAdmin.selector); b.setRouter(address(0xBAD));
+  }
+  function test_burnerWorksWithTheFirstBookToo() public {
+    Tok usdg = new Tok(); Tok jazz = new Tok(); Router r = new Router(usdg, jazz); OldBook c = new OldBook();
+    JazzBurner b = new JazzBurner(address(usdg), address(jazz), address(c), address(this), address(r), 25e6, 0);
+    usdg.mint(address(b), 5e6);
+    require(b.burn(5e6, 1, abi.encodeCall(Router.buy, (5e6, 7e18))) == 7e18, "burns against a book with no head");
   }
 }
