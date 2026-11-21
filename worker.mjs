@@ -1153,7 +1153,7 @@ export default {
     if (url.pathname === '/agents/njc.json') return json(NJC_CARD());
     if (url.pathname === '/credit-file' || url.pathname === '/.well-known/agent-credit-file.json') {
       const agent = url.pathname === '/credit-file' ? url.searchParams.get('agent') : String(NJC_ID || 26221);
-      try { return json(await creditFile(agent, {incomeRead: (a, d) => incomeRead(a, d)})); } catch (e) { return json({error: e.message}, 400); }
+      try { return json(await creditFile(agent, {incomeRead: (a, d) => incomeRead(a, d), solana: url.searchParams.get('solana')})); } catch (e) { return json({error: e.message}, 400); }
     }
     { const c = url.pathname.match(/^\/agents\/cat\/(\d+)(?:\.json)?$/); if (c) { if (c[1] === '1') return json(CAT1_CARD); try { return json(catCard(c[1], await catWallet(c[1]), url.origin)); } catch (e) { return json({error: e.message}, 404); } } }
     { const c = url.pathname.match(/^\/cat\/(\d+)$/); if (c && req.method === 'GET') { count(env, ctx, 'cat'); try { return await catPage(c[1], url); } catch (e) { return json({error: e.message}, 404); } } }
